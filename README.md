@@ -275,4 +275,4 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 Cada corrida deja su registro en `ingestas` y se ve en `/ingesta`. En el plan **Hobby** de Vercel
 los crons corren **una vez al día** y la función tiene 60 s de tope; en Pro puedes bajar a cada hora
-y subir `maxDuration` a 300.
+y subir `maxDuration` a 300. 
