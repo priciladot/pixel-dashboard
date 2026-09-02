@@ -1,7 +1,7 @@
 # Dashboard de Ventas y Evaluación de Desempeño — PIXEL.play
 
 Portal interno donde cada vendedor consulta su evaluación mensual y sus métricas, y la dirección
-(Priscilla, Daniel, Noelia, Talento Humano) ve la información consolidada del área.
+(Pricila, Daniel, Noelia, Talento Humano) ve la información consolidada del área.
 
 **Stack:** Next.js 15 (App Router, TypeScript) · TailwindCSS · Supabase (PostgreSQL + Auth + RLS).
 
@@ -34,7 +34,7 @@ app en la mano solo puede leer sus propias filas porque Postgres se lo impide.
 
 | Rol | Quién | Puede |
 |---|---|---|
-| `admin` | Priscilla | Todo: dashboard maestro, todos los perfiles, ingesta y escritura |
+| `admin` | Pricila | Todo: dashboard maestro, todos los perfiles, ingesta y escritura |
 | `supervisor` | Daniel, Noelia, Talento Humano | Lectura global: maestro y todos los perfiles. Sin escritura |
 | `vendedor` | Erick, Diego, Roxana, Mar, Gaby | Solo su perfil, y solo evaluaciones **publicadas**. Puede mover el estatus de sus propias acciones |
 
