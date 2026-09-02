@@ -17,6 +17,10 @@ export const maxDuration = 60;   // Límite del plan Hobby de Vercel. En Pro sub
  *   ?periodo=2026-08   fuerza un periodo en lugar del vigente
  *   ?anterior=1        sincroniza también el periodo previo (cierres tardíos)
  *   ?simulacion=1      solo reporta, no escribe
+ *   ?secret=...        alternativa a la cabecera Authorization, para probar
+ *                      desde el navegador. Evítalo fuera de pruebas puntuales:
+ *                      los parámetros de query quedan en logs y en el
+ *                      historial del navegador.
  *
  * Prueba manual:
  *   curl -H "Authorization: Bearer $CRON_SECRET" \
@@ -30,11 +34,15 @@ export async function GET(req: Request) {
       { status: 500 },
     );
   }
-  if (req.headers.get("authorization") !== `Bearer ${secreto}`) {
+
+  const url = new URL(req.url);
+  const autorizado =
+    req.headers.get("authorization") === `Bearer ${secreto}` ||
+    url.searchParams.get("secret") === secreto;
+  if (!autorizado) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const url = new URL(req.url);
   const forzado = url.searchParams.get("periodo");
   const incluirAnterior = url.searchParams.get("anterior") === "1";
   const simulacion = url.searchParams.get("simulacion") === "1";
