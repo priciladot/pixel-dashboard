@@ -1,0 +1,36 @@
+{
+  "name": "pixel-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "crear-usuarios": "tsx scripts/crear-usuarios.ts",
+    "ingesta:hubspot": "tsx scripts/ingest-hubspot.ts",
+    "ingesta:archivo": "tsx scripts/ingest-archivos.ts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.45.4",
+    "csv-parse": "^5.5.6",
+    "next": "^15.0.3",
+    "pdf-parse": "^1.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "dotenv": "^16.4.5",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+
+html, body { background: #f9f9f7; color: #0b0b0b; }
+
+/* Columnas numéricas alineadas; los números grandes usan cifras proporcionales. */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Barra de cumplimiento: extremo redondeado de 4px anclado a la línea base. */
+.barra-pista { background: #e1e0d9; border-radius: 4px; overflow: hidden; height: 8px; }
+.barra-valor { height: 100%; border-radius: 0 4px 4px 0; }
