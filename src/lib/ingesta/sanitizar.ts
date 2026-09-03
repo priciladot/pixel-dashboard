@@ -160,7 +160,7 @@ export function esGanado(d: DealCrudo): boolean {
  * Ojo con el orden: "Remarketing Existente" contiene ambas palabras, así que
  * "existente" se evalúa primero.
  */
-function tipoCliente(v: unknown): "existente" | "nuevo" | "por_revisar" {
+export function tipoCliente(v: unknown): "existente" | "nuevo" | "por_revisar" {
   const t = normalizar(String(v ?? ""));
   if (!t) return "por_revisar";
   if (t.includes("existente") || t.includes("cartera") || t.includes("desfasado")) return "existente";

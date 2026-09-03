@@ -13,12 +13,17 @@
  * Un negocio dividido entre dos personas son DOS filas en Monday, no una
  * fila con dos columnas de persona.
  *
+ * Además de la atribución, el tablero trae información operativa/comercial
+ * que HubSpot no modela (tipo de negocio, producto, fechas de evento,
+ * viáticos) — se lee completa para no perderla, aunque hoy solo
+ * `tipo_negocio` se use para tapar un vacío de HubSpot.
+ *
  * IDs de columna: Monday identifica cada columna con un id interno (no el
  * título visible), y cambia entre tableros. Los defaults de abajo son un
  * punto de partida razonable — confírmalos con `listarColumnas()`.
  */
 
-import { normalizar } from "./sanitizar";
+import { normalizar, tipoCliente } from "./sanitizar";
 
 const BASE = "https://api.monday.com/v2";
 const VERSION = "2024-10";
@@ -38,13 +43,34 @@ function boardId(): string {
  * a `listarColumnas()` para ver los ids y títulos reales.
  */
 export const COLUMNAS = {
-  hubspotId:   process.env.MONDAY_COL_HUBSPOT_ID  ?? "text_hubspot_id",
-  propietario: process.env.MONDAY_COL_PROPIETARIO ?? "person",
-  estado:      process.env.MONDAY_COL_ESTADO      ?? "status",
-  porcentaje:  process.env.MONDAY_COL_PORCENTAJE  ?? "porcentaje_comision",
-  montoTotal:  process.env.MONDAY_COL_MONTO_TOTAL ?? "monto_total",
-  mesEvento:   process.env.MONDAY_COL_MES_EVENTO  ?? "mes_evento",
-  fechaCierre: process.env.MONDAY_COL_FECHA_CIERRE ?? "date",
+  // Cruce con HubSpot
+  hubspotId:        process.env.MONDAY_COL_HUBSPOT_ID        ?? "text_hubspot_id",
+  linkHubspot:      process.env.MONDAY_COL_LINK_HUBSPOT      ?? "link_hubspot",
+  // Atribución
+  propietario:      process.env.MONDAY_COL_PROPIETARIO       ?? "person",
+  estado:           process.env.MONDAY_COL_ESTADO            ?? "status",
+  porcentaje:       process.env.MONDAY_COL_PORCENTAJE        ?? "porcentaje_comision",
+  montoTotal:       process.env.MONDAY_COL_MONTO_TOTAL       ?? "monto_total",
+  // Cierre y origen
+  tipoNegocio:      process.env.MONDAY_COL_TIPO_NEGOCIO      ?? "tipo_negocio",
+  comoLlego:        process.env.MONDAY_COL_COMO_LLEGO        ?? "como_llego",
+  herramientaVenta: process.env.MONDAY_COL_HERRAMIENTA_VENTA ?? "herramienta_venta",
+  empresa:          process.env.MONDAY_COL_EMPRESA           ?? "empresa",
+  correoCliente:    process.env.MONDAY_COL_CORREO_CLIENTE    ?? "correo_cliente",
+  // Fechas operativas
+  inicioEvento:     process.env.MONDAY_COL_INICIO_EVENTO     ?? "inicio_evento",
+  finEvento:        process.env.MONDAY_COL_FIN_EVENTO        ?? "fin_evento",
+  mesEvento:        process.env.MONDAY_COL_MES_EVENTO        ?? "mes_evento",
+  semana:           process.env.MONDAY_COL_SEMANA            ?? "semana",
+  diasActivacion:   process.env.MONDAY_COL_DIAS_ACTIVACION   ?? "dias_activacion",
+  fechaCierre:      process.env.MONDAY_COL_FECHA_CIERRE      ?? "date",
+  // Detalle comercial / producto
+  areaPixelFactory: process.env.MONDAY_COL_AREA_PIXEL_FACTORY ?? "area_pixel_factory",
+  marcaEvento:      process.env.MONDAY_COL_MARCA_EVENTO      ?? "marca_evento",
+  productos:        process.env.MONDAY_COL_PRODUCTOS         ?? "productos",
+  numProductos:     process.env.MONDAY_COL_NUM_PRODUCTOS     ?? "num_productos",
+  numActivaciones:  process.env.MONDAY_COL_NUM_ACTIVACIONES  ?? "num_activaciones",
+  viaticos:         process.env.MONDAY_COL_VIATICOS          ?? "viaticos",
 };
 
 /** Valores de "Estado de Proyecto" que cuentan como venta sin dividir. */
@@ -108,14 +134,31 @@ interface ItemApi {
 
 export interface CierreCrudo {
   elemento_id: string;
-  hubspot_id_ref: string | null;
+  hubspot_id: string | null;
+  link_hubspot: string | null;
   propietario_nombre: string | null;
   estado_proyecto: string | null;
   /** Ya normalizado: 100 cuando Estado de Proyecto es Individual y el tablero no trae número. */
   porcentaje_comision: number | null;
   monto_total: number | null;
+  /** Reducido a existente/nuevo/por_revisar, misma dicotomía que hubspot_deals.tipo_cliente. */
+  tipo_negocio: "existente" | "nuevo" | "por_revisar" | null;
+  como_llego: string | null;
+  herramienta_venta: string | null;
+  empresa: string | null;
+  correo_cliente: string | null;
+  inicio_evento: string | null;
+  fin_evento: string | null;
   mes_evento: string | null;
+  semana: string | null;
+  dias_activacion: number | null;
   fecha_cierre: string | null;
+  area_pixel_factory: string | null;
+  marca_evento: string | null;
+  productos: string | null;
+  num_productos: number | null;
+  num_activaciones: number | null;
+  viaticos: number | null;
   raw: unknown;
 }
 
@@ -127,12 +170,18 @@ function num(v: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function texto(v: string | null): string | null {
+  if (v == null) return null;
+  const t = v.trim();
+  return t === "" ? null : t;
+}
+
 function col(item: ItemApi, id: string): ColumnValue | undefined {
   return item.column_values.find((c) => c.id === id);
 }
 
 function aCierreCrudo(item: ItemApi): CierreCrudo {
-  const estado = col(item, COLUMNAS.estado)?.text ?? null;
+  const estado = texto(col(item, COLUMNAS.estado)?.text ?? null);
   const esIndividual = estado != null && ESTADOS_INDIVIDUAL.includes(normalizar(estado));
   const porcentajeCrudo = num(col(item, COLUMNAS.porcentaje)?.text ?? null);
 
@@ -141,15 +190,35 @@ function aCierreCrudo(item: ItemApi): CierreCrudo {
   // vez de dejarlo nulo (que produciría monto_atribuido = 0, incorrecto).
   const porcentaje = porcentajeCrudo ?? (esIndividual ? 100 : null);
 
+  const tipoNegocioRaw = col(item, COLUMNAS.tipoNegocio)?.text ?? null;
+
   return {
     elemento_id: item.id,
-    hubspot_id_ref: col(item, COLUMNAS.hubspotId)?.text ?? null,
-    propietario_nombre: col(item, COLUMNAS.propietario)?.text ?? null,
+    hubspot_id: texto(col(item, COLUMNAS.hubspotId)?.text ?? null),
+    link_hubspot: texto(col(item, COLUMNAS.linkHubspot)?.text ?? null),
+    propietario_nombre: texto(col(item, COLUMNAS.propietario)?.text ?? null),
     estado_proyecto: estado,
     porcentaje_comision: porcentaje,
     monto_total: num(col(item, COLUMNAS.montoTotal)?.text ?? null),
-    mes_evento: col(item, COLUMNAS.mesEvento)?.text ?? null,
-    fecha_cierre: col(item, COLUMNAS.fechaCierre)?.text ?? null,
+    // Sin dato en Monday se deja null (no "por_revisar") para no pisar lo
+    // que ya haya resuelto HubSpot; el coalesce vive en v_deals_operativo.
+    tipo_negocio: tipoNegocioRaw ? tipoCliente(tipoNegocioRaw) : null,
+    como_llego: texto(col(item, COLUMNAS.comoLlego)?.text ?? null),
+    herramienta_venta: texto(col(item, COLUMNAS.herramientaVenta)?.text ?? null),
+    empresa: texto(col(item, COLUMNAS.empresa)?.text ?? null),
+    correo_cliente: texto(col(item, COLUMNAS.correoCliente)?.text ?? null),
+    inicio_evento: texto(col(item, COLUMNAS.inicioEvento)?.text ?? null),
+    fin_evento: texto(col(item, COLUMNAS.finEvento)?.text ?? null),
+    mes_evento: texto(col(item, COLUMNAS.mesEvento)?.text ?? null),
+    semana: texto(col(item, COLUMNAS.semana)?.text ?? null),
+    dias_activacion: num(col(item, COLUMNAS.diasActivacion)?.text ?? null),
+    fecha_cierre: texto(col(item, COLUMNAS.fechaCierre)?.text ?? null),
+    area_pixel_factory: texto(col(item, COLUMNAS.areaPixelFactory)?.text ?? null),
+    marca_evento: texto(col(item, COLUMNAS.marcaEvento)?.text ?? null),
+    productos: texto(col(item, COLUMNAS.productos)?.text ?? null),
+    num_productos: num(col(item, COLUMNAS.numProductos)?.text ?? null),
+    num_activaciones: num(col(item, COLUMNAS.numActivaciones)?.text ?? null),
+    viaticos: num(col(item, COLUMNAS.viaticos)?.text ?? null),
     raw: item,
   };
 }

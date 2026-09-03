@@ -281,10 +281,11 @@ y subir `maxDuration` a 300.
 
 ## 8. Conexión con Monday.com (ventas divididas)
 
-HubSpot modela un deal con un solo owner. Cuando dos vendedores colaboran en el mismo evento, la
-división real de montos se lleva en el tablero de Monday **"Deals Ganados 2026 - HubSpot"**
-(`board_id 18408527402`) — no en HubSpot. `006_monday_cierres.sql` agrega `monday_cierres` para esa
-información y la vista `v_atribucion_comercial`.
+HubSpot modela un deal con un solo owner y no trae varios datos operativos del evento. El tablero
+de Monday **"Deals Ganados 2026 - HubSpot"** (`board_id 18408527402`) sí los tiene: división real de
+montos cuando dos vendedores colaboran, tipo de negocio, producto, fechas de evento, viáticos.
+`006_monday_cierres.sql` agrega `monday_cierres` (se guarda el tablero completo, columna por
+columna, no solo lo de atribución) y la vista `v_deals_operativo`.
 
 **Estructura real del tablero** (confirmada en la interfaz, no supuesta): cada fila es la porción
 de **un solo vendedor** sobre un negocio, con tres columnas — `Estado de Proyecto` (Individual /
@@ -302,12 +303,26 @@ Si el tablero deja el porcentaje vacío en una fila Individual, la ingesta lo no
 de guardar (evita que quede en 0 por un campo sin llenar). Sin ninguna fila de Monday para un
 `hubspot_id`, la atribución sigue siendo íntegra al owner de HubSpot — sin cambio respecto a antes.
 
+### Qué más trae `monday_cierres`, además de la atribución
+
+| Grupo | Columnas |
+|---|---|
+| Cruce con HubSpot | `hubspot_id` (llave de enlace con `hubspot_deals.hubspot_id`), `link_hubspot` |
+| Cierre y origen | `tipo_negocio`, `como_llego`, `herramienta_venta`, `empresa`, `correo_cliente` |
+| Fechas operativas | `inicio_evento`, `fin_evento`, `mes_evento`, `semana`, `dias_activacion` |
+| Producto | `area_pixel_factory`, `marca_evento`, `productos`, `num_productos`, `num_activaciones`, `viaticos` |
+
+`tipo_negocio` (New Business / Cliente existente en el tablero) se reduce a la misma dicotomía que
+`hubspot_deals.tipo_cliente` (`existente` / `nuevo` / `por_revisar`, con la función ya compartida
+`tipoCliente()` de `sanitizar.ts`) — así `v_deals_operativo` puede usarla para tapar el vacío que
+HubSpot no llena en este pipeline (ver §4). El resto de las columnas no se transforma: se guarda tal
+como viene, con `raw` de respaldo por si algo todavía no se mapea.
+
 ### Ids de columna — hay que confirmarlos, no son los reales todavía
 
 Monday identifica cada columna por un id interno, no por el título visible, y cambia entre
-tableros. Los defaults en `src/lib/ingesta/monday.ts` (`text_hubspot_id`, `person`, `status`,
-`porcentaje_comision`, `monto_total`, `mes_evento`, `date`) son un punto de partida razonable,
-**no los ids reales de este tablero**. Con `MONDAY_API_TOKEN` ya configurado:
+tableros. Los defaults en `src/lib/ingesta/monday.ts` son un punto de partida razonable, **no los
+ids reales de este tablero**. Con `MONDAY_API_TOKEN` ya configurado:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" \

@@ -13,7 +13,7 @@ import {
   agregarPorVendedor, normalizar, sanearLote,
   type DealCrudo, type Diccionarios, type DealSaneado,
 } from "./sanitizar";
-import { resolverVendedor } from "./monday";
+import { resolverVendedor, type CierreCrudo } from "./monday";
 
 export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionarios> {
   const [perfiles, alias, mapaOwners, periodos, catalogo] = await Promise.all([
@@ -287,22 +287,14 @@ export async function ingestarSemaforo(
  * Carga los cierres del tablero de Monday. Cada fila del tablero ya es la
  * porción de UN vendedor (Individual = 100%, Dividido = su % de comisión);
  * `monto_atribuido` lo calcula la base de datos (columna generada), nunca
- * este código. No toca hubspot_deals ni kpi_mensual — la vista
- * v_atribucion_comercial hace el cruce al momento de leer.
+ * este código. Además de la atribución se guarda todo el detalle operativo
+ * del tablero (producto, fechas de evento, viáticos, tipo de negocio) sin
+ * transformarlo — v_deals_operativo decide qué usar. No toca hubspot_deals
+ * ni kpi_mensual.
  */
 export async function ingestarCierresMonday(
   db: SupabaseClient,
-  crudos: Array<{
-    elemento_id: string;
-    hubspot_id_ref: string | null;
-    propietario_nombre: string | null;
-    estado_proyecto: string | null;
-    porcentaje_comision: number | null;
-    monto_total: number | null;
-    mes_evento: string | null;
-    fecha_cierre: string | null;
-    raw: unknown;
-  }>,
+  crudos: CierreCrudo[],
   opciones: { tipo: "monday_api" | "monday_cron" },
 ): Promise<{ ingestaId: number; filasOk: number; sinAsignar: number }> {
   const { data: ingesta, error: errIngesta } = await db
@@ -323,13 +315,30 @@ export async function ingestarCierresMonday(
 
       return {
         elemento_id: c.elemento_id,
-        hubspot_id_ref: c.hubspot_id_ref,
+        hubspot_id: c.hubspot_id,
+        link_hubspot: c.link_hubspot,
         vendedor_id: vendedorId,
+        propietario: c.propietario_nombre,
         estado_proyecto: c.estado_proyecto,
         porcentaje_comision: c.porcentaje_comision,
         monto_total: c.monto_total,
+        tipo_negocio: c.tipo_negocio,
+        como_llego: c.como_llego,
+        herramienta_venta: c.herramienta_venta,
+        empresa: c.empresa,
+        correo_cliente: c.correo_cliente,
+        inicio_evento: c.inicio_evento,
+        fin_evento: c.fin_evento,
         mes_evento: c.mes_evento,
+        semana: c.semana,
+        dias_activacion: c.dias_activacion,
         fecha_cierre: c.fecha_cierre,
+        area_pixel_factory: c.area_pixel_factory,
+        marca_evento: c.marca_evento,
+        productos: c.productos,
+        num_productos: c.num_productos,
+        num_activaciones: c.num_activaciones,
+        viaticos: c.viaticos,
         ingesta_id: ingestaId,
         raw: c.raw,
         actualizado_en: new Date().toISOString(),
