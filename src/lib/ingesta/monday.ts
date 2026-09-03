@@ -5,16 +5,17 @@
  * Requiere un token personal o de app con acceso de lectura al tablero:
  *   MONDAY_API_TOKEN
  *
- * Monday es la fuente de la división de montos cuando dos vendedores
- * colaboran en un mismo evento — algo que HubSpot no modela (un deal, un
- * solo owner). El resto de la información del deal (monto base, etapa,
- * fechas) sigue viniendo de HubSpot; este conector solo aporta la división.
+ * Estructura real del tablero (confirmada en la interfaz, no supuesta):
+ * cada fila es la porción de UN vendedor sobre un negocio —
+ *   Estado de Proyecto      'Individual' | 'Compartida/Dividida'
+ *   Porcentaje de comisión  % de ese vendedor sobre el monto total
+ *   Propietario             el ejecutivo dueño de esa porción
+ * Un negocio dividido entre dos personas son DOS filas en Monday, no una
+ * fila con dos columnas de persona.
  *
- * IDs de columna: Monday identifica cada columna del tablero con un id
- * interno (no el título visible), y cambia entre tableros. Los defaults de
- * abajo son un punto de partida razonable, NO los ids reales de este
- * tablero — hay que confirmarlos corriendo `listarColumnas()` una vez que
- * exista el token, y ajustar las variables de entorno si no coinciden.
+ * IDs de columna: Monday identifica cada columna con un id interno (no el
+ * título visible), y cambia entre tableros. Los defaults de abajo son un
+ * punto de partida razonable — confírmalos con `listarColumnas()`.
  */
 
 import { normalizar } from "./sanitizar";
@@ -37,17 +38,17 @@ function boardId(): string {
  * a `listarColumnas()` para ver los ids y títulos reales.
  */
 export const COLUMNAS = {
-  hubspotId:           process.env.MONDAY_COL_HUBSPOT_ID          ?? "text_hubspot_id",
-  vendedorPrincipal:    process.env.MONDAY_COL_VENDEDOR_PRINCIPAL   ?? "person",
-  covendedor:           process.env.MONDAY_COL_COVENDEDOR           ?? "co_vendedor",
-  montoTotal:           process.env.MONDAY_COL_MONTO_TOTAL          ?? "monto_total",
-  porcentajeDivision:   process.env.MONDAY_COL_PORCENTAJE_DIVISION  ?? "porcentaje_division",
-  montoVendedor:        process.env.MONDAY_COL_MONTO_VENDEDOR       ?? "monto_vendedor",
-  montoCovendedor:      process.env.MONDAY_COL_MONTO_COVENDEDOR     ?? "monto_covendedor",
-  estado:               process.env.MONDAY_COL_ESTADO               ?? "status",
-  mesEvento:            process.env.MONDAY_COL_MES_EVENTO           ?? "mes_evento",
-  fechaCierre:          process.env.MONDAY_COL_FECHA_CIERRE         ?? "date",
+  hubspotId:   process.env.MONDAY_COL_HUBSPOT_ID  ?? "text_hubspot_id",
+  propietario: process.env.MONDAY_COL_PROPIETARIO ?? "person",
+  estado:      process.env.MONDAY_COL_ESTADO      ?? "status",
+  porcentaje:  process.env.MONDAY_COL_PORCENTAJE  ?? "porcentaje_comision",
+  montoTotal:  process.env.MONDAY_COL_MONTO_TOTAL ?? "monto_total",
+  mesEvento:   process.env.MONDAY_COL_MES_EVENTO  ?? "mes_evento",
+  fechaCierre: process.env.MONDAY_COL_FECHA_CIERRE ?? "date",
 };
+
+/** Valores de "Estado de Proyecto" que cuentan como venta sin dividir. */
+const ESTADOS_INDIVIDUAL = ["individual"];
 
 async function api<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const res = await fetch(BASE, {
@@ -108,13 +109,11 @@ interface ItemApi {
 export interface CierreCrudo {
   elemento_id: string;
   hubspot_id_ref: string | null;
-  vendedor_principal_nombre: string | null;
-  covendedor_nombre: string | null;
-  monto_total: number | null;
-  porcentaje_division: number | null;
-  monto_vendedor: number | null;
-  monto_covendedor: number | null;
+  propietario_nombre: string | null;
   estado_proyecto: string | null;
+  /** Ya normalizado: 100 cuando Estado de Proyecto es Individual y el tablero no trae número. */
+  porcentaje_comision: number | null;
+  monto_total: number | null;
   mes_evento: string | null;
   fecha_cierre: string | null;
   raw: unknown;
@@ -133,18 +132,22 @@ function col(item: ItemApi, id: string): ColumnValue | undefined {
 }
 
 function aCierreCrudo(item: ItemApi): CierreCrudo {
-  const covendedorTexto = col(item, COLUMNAS.covendedor)?.text ?? null;
+  const estado = col(item, COLUMNAS.estado)?.text ?? null;
+  const esIndividual = estado != null && ESTADOS_INDIVIDUAL.includes(normalizar(estado));
+  const porcentajeCrudo = num(col(item, COLUMNAS.porcentaje)?.text ?? null);
+
+  // Regla de negocio: Individual o 100% => se atribuye el monto completo.
+  // Si el tablero no trae el número en una fila Individual, se asume 100 en
+  // vez de dejarlo nulo (que produciría monto_atribuido = 0, incorrecto).
+  const porcentaje = porcentajeCrudo ?? (esIndividual ? 100 : null);
+
   return {
     elemento_id: item.id,
     hubspot_id_ref: col(item, COLUMNAS.hubspotId)?.text ?? null,
-    vendedor_principal_nombre: col(item, COLUMNAS.vendedorPrincipal)?.text ?? null,
-    // Columna de personas vacía en Monday suele regresar "" en vez de null.
-    covendedor_nombre: covendedorTexto && covendedorTexto.trim() !== "" ? covendedorTexto : null,
+    propietario_nombre: col(item, COLUMNAS.propietario)?.text ?? null,
+    estado_proyecto: estado,
+    porcentaje_comision: porcentaje,
     monto_total: num(col(item, COLUMNAS.montoTotal)?.text ?? null),
-    porcentaje_division: num(col(item, COLUMNAS.porcentajeDivision)?.text ?? null),
-    monto_vendedor: num(col(item, COLUMNAS.montoVendedor)?.text ?? null),
-    monto_covendedor: num(col(item, COLUMNAS.montoCovendedor)?.text ?? null),
-    estado_proyecto: col(item, COLUMNAS.estado)?.text ?? null,
     mes_evento: col(item, COLUMNAS.mesEvento)?.text ?? null,
     fecha_cierre: col(item, COLUMNAS.fechaCierre)?.text ?? null,
     raw: item,
@@ -167,7 +170,7 @@ export async function listarCierres(): Promise<CierreCrudo[]> {
     }`,
     { boardId: [boardId()], columnIds },
   );
-  let pagina = r.boards[0]?.items_page;
+  const pagina = r.boards[0]?.items_page;
   if (!pagina) return [];
   salida.push(...pagina.items.map(aCierreCrudo));
   let cursor = pagina.cursor;

@@ -284,17 +284,30 @@ y subir `maxDuration` a 300.
 HubSpot modela un deal con un solo owner. Cuando dos vendedores colaboran en el mismo evento, la
 división real de montos se lleva en el tablero de Monday **"Deals Ganados 2026 - HubSpot"**
 (`board_id 18408527402`) — no en HubSpot. `006_monday_cierres.sql` agrega `monday_cierres` para esa
-información y la vista `v_atribucion_comercial`, que reparte el monto ganado entre vendedor
-principal y covendedor cuando Monday registra una división; sin división, la atribución es íntegra
-al owner de HubSpot (sin cambio respecto a antes).
+información y la vista `v_atribucion_comercial`.
+
+**Estructura real del tablero** (confirmada en la interfaz, no supuesta): cada fila es la porción
+de **un solo vendedor** sobre un negocio, con tres columnas — `Estado de Proyecto` (Individual /
+Compartida-Dividida), `Porcentaje de comisión` y `Propietario`. Un negocio dividido entre dos
+personas son **dos filas** en Monday, no una fila con dos columnas de persona. La regla de
+atribución, aplicada como columna generada en la base de datos (nunca calculada a mano en el
+código):
+
+```
+Individual o 100%  ->  monto_atribuido = monto_total
+Dividido            ->  monto_atribuido = monto_total × (porcentaje_comision / 100)
+```
+
+Si el tablero deja el porcentaje vacío en una fila Individual, la ingesta lo normaliza a 100 antes
+de guardar (evita que quede en 0 por un campo sin llenar). Sin ninguna fila de Monday para un
+`hubspot_id`, la atribución sigue siendo íntegra al owner de HubSpot — sin cambio respecto a antes.
 
 ### Ids de columna — hay que confirmarlos, no son los reales todavía
 
 Monday identifica cada columna por un id interno, no por el título visible, y cambia entre
-tableros. Los defaults en `src/lib/ingesta/monday.ts` (`text_hubspot_id`, `person`, `co_vendedor`,
-`monto_total`, `porcentaje_division`, `monto_vendedor`, `monto_covendedor`, `status`, `mes_evento`,
-`date`) son un punto de partida razonable, **no los ids reales de este tablero**. Con
-`MONDAY_API_TOKEN` ya configurado:
+tableros. Los defaults en `src/lib/ingesta/monday.ts` (`text_hubspot_id`, `person`, `status`,
+`porcentaje_comision`, `monto_total`, `mes_evento`, `date`) son un punto de partida razonable,
+**no los ids reales de este tablero**. Con `MONDAY_API_TOKEN` ya configurado:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" \
@@ -318,8 +331,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
   "https://pixel-dashboard-delta.vercel.app/api/cron/sincronizar-monday"
 ```
 
-Los nombres de "Vendedor principal" y "Covendedor" que trae Monday se resuelven a `vendedor_id`
-con el mismo diccionario de alias que usa el resto de la ingesta (`profiles`, `profile_alias`,
-`hubspot_owner_map`) — si Monday trae un nombre que no coincide con ningún alias conocido, el
-cierre se guarda igual (nada se descarta) pero queda sin vendedor asignado, visible en el
-resumen de la corrida (`sin_asignar`). 
+El nombre de "Propietario" que trae Monday se resuelve a `vendedor_id` con el mismo diccionario de
+alias que usa el resto de la ingesta (`profiles`, `profile_alias`, `hubspot_owner_map`) — si Monday
+trae un nombre que no coincide con ningún alias conocido, la fila se guarda igual (nada se
+descarta) pero queda sin vendedor asignado, visible en el resumen de la corrida (`sin_asignar`). 
