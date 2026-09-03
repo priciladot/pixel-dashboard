@@ -30,7 +30,7 @@ export default async function Maestro({
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
     vendedores(),
-    dealsPorRevisar(periodoId),
+    dealsPorRevisar(periodoId, sp.vendedor),
   ]);
 
   const filas = sp.vendedor ? equipo.filter((f) => f.vendedor_id === sp.vendedor) : equipo;
@@ -39,6 +39,54 @@ export default async function Maestro({
     ventana === "kpi_4_semanas"
       ? `S1–S4: ${periodo.kpi_inicio} al ${periodo.kpi_fin}`
       : `Calendario: ${periodo.cal_inicio} al ${periodo.cal_fin}`;
+
+  // Con un vendedor filtrado, el resumen ejecutivo muestra SUS cifras (de
+  // v_kpi_vendedor, la misma fuente que la tabla comparativa) en vez de la
+  // cifra oficial del área — antes se seguía mostrando el total del área sin
+  // importar el filtro. Sin filtro, o si el id no resolvió a nadie, se cae al
+  // resumen del área de siempre.
+  const seleccionado = sp.vendedor ? filas[0] : undefined;
+  const resumen = seleccionado
+    ? {
+        titulo: `Resumen ejecutivo — ${seleccionado.nombre_corto}`,
+        cifraOficial: false,
+        venta_total_iva: seleccionado.venta_total_iva,
+        objetivo_total_iva: seleccionado.objetivo_total,
+        cumplimiento_pct: seleccionado.cumplimiento_pct,
+        deals_ganados: seleccionado.deals_ganados,
+        ganado_sin_iva: null as number | null,
+        tareas_abiertas: seleccionado.tareas_abiertas,
+        venta_existentes_iva: seleccionado.venta_existentes_iva,
+        venta_nuevos_iva: seleccionado.venta_nuevos_iva,
+        notas: seleccionado.notas,
+        leads_registrados: seleccionado.leads_registrados,
+        leads_relevantes: seleccionado.leads_relevantes,
+        // v_kpi_vendedor no tiene "leads_con_deal" por persona; deals_creados
+        // es el análogo más cercano disponible para ese paso del embudo.
+        leads_con_deal: seleccionado.deals_creados,
+        deals_marketing: null as number | null,
+        monto_marketing_sin_iva: null as number | null,
+        ciclo_cierre_promedio: seleccionado.ciclo_cierre_dias,
+      }
+    : {
+        titulo: "Resumen ejecutivo del área",
+        cifraOficial: Boolean(area?.venta_total_iva != null),
+        venta_total_iva: area?.venta_total_iva ?? null,
+        objetivo_total_iva: area?.objetivo_total_iva ?? null,
+        cumplimiento_pct: area?.cumplimiento_pct ?? null,
+        deals_ganados: area?.deals_ganados ?? null,
+        ganado_sin_iva: area?.ganado_sin_iva ?? null,
+        tareas_abiertas: area?.tareas_abiertas ?? null,
+        venta_existentes_iva: area?.venta_existentes_iva ?? null,
+        venta_nuevos_iva: area?.venta_nuevos_iva ?? null,
+        notas: area?.notas ?? null,
+        leads_registrados: area?.leads_registrados ?? null,
+        leads_relevantes: area?.leads_relevantes ?? null,
+        leads_con_deal: area?.leads_con_deal ?? null,
+        deals_marketing: area?.deals_marketing ?? null,
+        monto_marketing_sin_iva: area?.monto_marketing_sin_iva ?? null,
+        ciclo_cierre_promedio: area?.ciclo_cierre_promedio ?? null,
+      };
 
   return (
     <>
@@ -57,66 +105,70 @@ export default async function Maestro({
 
       {/* Resumen ejecutivo ------------------------------------------------ */}
       <Seccion
-        titulo="Resumen ejecutivo del área"
+        titulo={resumen.titulo}
         descripcion={
-          area?.cifra_oficial
-            ? "Cifra oficial del semáforo comercial, no la suma de las filas individuales."
-            : "Reconstruido sumando las filas por vendedor: aún no se captura la cifra oficial del área."
+          seleccionado
+            ? "Cifras de este vendedor para el periodo — misma fuente que la tabla comparativa de abajo."
+            : resumen.cifraOficial
+              ? "Cifra oficial del semáforo comercial, no la suma de las filas individuales."
+              : "Reconstruido sumando las filas por vendedor: aún no se captura la cifra oficial del área."
         }
       >
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
-            etiqueta="Venta del periodo"
-            valor={dineroCorto(area?.venta_total_iva)}
-            apoyo={dinero(area?.venta_total_iva)}
+            etiqueta={seleccionado ? "Venta del vendedor" : "Venta del periodo"}
+            valor={dineroCorto(resumen.venta_total_iva)}
+            apoyo={dinero(resumen.venta_total_iva)}
           />
           <KpiCard
             etiqueta="Cumplimiento"
-            valor={pct(area?.cumplimiento_pct)}
-            apoyo={`Objetivo ${dineroCorto(area?.objetivo_total_iva)}`}
+            valor={pct(resumen.cumplimiento_pct)}
+            apoyo={`Objetivo ${dineroCorto(resumen.objetivo_total_iva)}`}
             lectura={
-              area?.cumplimiento_pct == null ? undefined :
-              area.cumplimiento_pct >= 100 ? "En objetivo" :
-              `Faltan ${dineroCorto((area.objetivo_total_iva ?? 0) - (area.venta_total_iva ?? 0))}`
+              resumen.cumplimiento_pct == null ? undefined :
+              resumen.cumplimiento_pct >= 100 ? "En objetivo" :
+              `Faltan ${dineroCorto((resumen.objetivo_total_iva ?? 0) - (resumen.venta_total_iva ?? 0))}`
             }
-            estado={area?.cumplimiento_pct != null && area.cumplimiento_pct >= 100 ? "cumple" : "debajo"}
+            estado={resumen.cumplimiento_pct != null && resumen.cumplimiento_pct >= 100 ? "cumple" : "debajo"}
           />
           <KpiCard
             etiqueta="Negocios ganados"
-            valor={num(area?.deals_ganados)}
-            apoyo={area?.ganado_sin_iva ? `${dinero(area.ganado_sin_iva)} sin IVA` : undefined}
+            valor={num(resumen.deals_ganados)}
+            apoyo={resumen.ganado_sin_iva ? `${dinero(resumen.ganado_sin_iva)} sin IVA` : undefined}
           />
           <KpiCard
             etiqueta="Tareas abiertas"
-            valor={num(area?.tareas_abiertas)}
+            valor={num(resumen.tareas_abiertas)}
             apoyo="Sin ejecutar, acumuladas en el equipo"
-            lectura={area?.tareas_abiertas && area.tareas_abiertas > 100 ? "Revisar si es un problema sistémico" : undefined}
-            estado={area?.tareas_abiertas && area.tareas_abiertas > 100 ? "debajo" : undefined}
+            lectura={resumen.tareas_abiertas && resumen.tareas_abiertas > 100 ? "Revisar si es un problema sistémico" : undefined}
+            estado={resumen.tareas_abiertas && resumen.tareas_abiertas > 100 ? "debajo" : undefined}
           />
         </div>
 
         <div className="mt-3 grid gap-3 lg:grid-cols-3">
           <MezclaCartera
-            existentes={area?.venta_existentes_iva ?? null}
-            nuevos={area?.venta_nuevos_iva ?? null}
-            nota={area?.notas}
+            existentes={resumen.venta_existentes_iva}
+            nuevos={resumen.venta_nuevos_iva}
+            nota={resumen.notas}
           />
           <Card className="px-4 py-4 lg:col-span-2">
-            <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Embudo del periodo</h3>
+            <h3 className="mb-2.5 text-[13px] font-semibold text-ink">
+              {seleccionado ? `Embudo de ${seleccionado.nombre_corto}` : "Embudo del periodo"}
+            </h3>
             <Embudo
               pasos={[
-                { etiqueta: "Leads registrados", valor: area?.leads_registrados ?? null },
-                { etiqueta: "Empresas relevantes", valor: area?.leads_relevantes ?? null },
-                { etiqueta: "Con negocio asociado", valor: area?.leads_con_deal ?? null },
-                { etiqueta: "Negocios ganados", valor: area?.deals_ganados ?? null },
+                { etiqueta: "Leads registrados", valor: resumen.leads_registrados },
+                { etiqueta: "Empresas relevantes", valor: resumen.leads_relevantes },
+                { etiqueta: seleccionado ? "Negocios creados" : "Con negocio asociado", valor: resumen.leads_con_deal },
+                { etiqueta: "Negocios ganados", valor: resumen.deals_ganados },
               ]}
             />
-            {area?.deals_marketing != null && (
+            {resumen.deals_marketing != null && (
               <p className="mt-3 border-t border-line pt-2 text-[12px] text-ink-soft">
                 Atribución a Marketing:{" "}
-                <span className="tabular font-medium text-ink">{num(area.deals_marketing)} negocios</span>
-                {area.monto_marketing_sin_iva != null && (
-                  <> · <span className="tabular font-medium text-ink">{dinero(area.monto_marketing_sin_iva)}</span> sin IVA</>
+                <span className="tabular font-medium text-ink">{num(resumen.deals_marketing)} negocios</span>
+                {resumen.monto_marketing_sin_iva != null && (
+                  <> · <span className="tabular font-medium text-ink">{dinero(resumen.monto_marketing_sin_iva)}</span> sin IVA</>
                 )}
               </p>
             )}
@@ -148,7 +200,11 @@ export default async function Maestro({
       {/* Calidad de datos ------------------------------------------------- */}
       <Seccion
         titulo="Calidad de los datos"
-        descripcion="Registros que la capa de sanitización dejó marcados. No rompen las métricas: quedan aparte."
+        descripcion={
+          seleccionado
+            ? `Registros de ${seleccionado.nombre_corto} que la capa de sanitización dejó marcados.`
+            : "Registros que la capa de sanitización dejó marcados. No rompen las métricas: quedan aparte."
+        }
       >
         {revisar.length === 0 ? (
           <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
@@ -200,9 +256,10 @@ export default async function Maestro({
         )}
       </Seccion>
 
-      {area?.ciclo_cierre_promedio != null && (
+      {resumen.ciclo_cierre_promedio != null && (
         <p className="text-[12px] text-ink-muted">
-          Ciclo de cierre promedio del equipo: <span className="tabular font-medium text-ink-soft">{dias(area.ciclo_cierre_promedio)}</span>
+          {seleccionado ? `Ciclo de cierre de ${seleccionado.nombre_corto}` : "Ciclo de cierre promedio del equipo"}:{" "}
+          <span className="tabular font-medium text-ink-soft">{dias(resumen.ciclo_cierre_promedio)}</span>
         </p>
       )}
     </>

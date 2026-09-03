@@ -150,6 +150,7 @@ export interface DealPorRevisar {
   hubspot_id: string;
   nombre: string | null;
   owner_nombre_raw: string | null;
+  vendedor_id: string | null;
   vendedor: string;
   monto_sin_iva: number | null;
   monto_con_iva: number | null;
@@ -160,10 +161,11 @@ export interface DealPorRevisar {
   es_division: boolean;
 }
 
-export async function dealsPorRevisar(periodoId?: string): Promise<DealPorRevisar[]> {
+export async function dealsPorRevisar(periodoId?: string, vendedorId?: string): Promise<DealPorRevisar[]> {
   const supabase = await createClient();
   let q = supabase.from("v_deals_por_revisar").select("*").limit(500);
   if (periodoId) q = q.eq("periodo_id", periodoId);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q;
   return (data as DealPorRevisar[]) ?? [];
 }
