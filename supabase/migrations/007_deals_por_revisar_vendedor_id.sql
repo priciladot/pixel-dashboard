@@ -5,9 +5,16 @@
 -- los datos" porque v_deals_por_revisar nunca exponía vendedor_id — solo el
 -- nombre ya resuelto ("vendedor"). Sin la columna, el código no tenía nada
 -- contra qué comparar el ?vendedor= de la URL.
+--
+-- Postgres no deja insertar una columna a media lista con CREATE OR REPLACE
+-- VIEW (solo permite agregar columnas al final) — hace falta el DROP VIEW.
+-- Nada más depende de esta vista (revisado contra el resto de migraciones),
+-- así que el CASCADE no arrastra nada por accidente.
 -- =====================================================================
 
-create or replace view public.v_deals_por_revisar as
+drop view if exists public.v_deals_por_revisar cascade;
+
+create view public.v_deals_por_revisar as
 select
   d.hubspot_id, d.nombre, d.owner_nombre_raw, d.owner_hubspot_id,
   d.vendedor_id,
