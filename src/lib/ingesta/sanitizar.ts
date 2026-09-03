@@ -163,7 +163,8 @@ export function esGanado(d: DealCrudo): boolean {
 export function tipoCliente(v: unknown): "existente" | "nuevo" | "por_revisar" {
   const t = normalizar(String(v ?? ""));
   if (!t) return "por_revisar";
-  if (t.includes("existente") || t.includes("cartera") || t.includes("desfasado")) return "existente";
+  // "Existing Business" (Monday) también cuenta como existente, no solo el español.
+  if (t.includes("existente") || t.includes("existing") || t.includes("cartera") || t.includes("desfasado")) return "existente";
   if (t.includes("nuevo") || t.includes("nueva") || t.includes("new")) return "nuevo";
   return "por_revisar";
 }

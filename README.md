@@ -318,19 +318,24 @@ de guardar (evita que quede en 0 por un campo sin llenar). Sin ninguna fila de M
 HubSpot no llena en este pipeline (ver §4). El resto de las columnas no se transforma: se guarda tal
 como viene, con `raw` de respaldo por si algo todavía no se mapea.
 
-### Ids de columna — hay que confirmarlos, no son los reales todavía
+### Ids de columna — confirmados contra el tablero real
 
-Monday identifica cada columna por un id interno, no por el título visible, y cambia entre
-tableros. Los defaults en `src/lib/ingesta/monday.ts` son un punto de partida razonable, **no los
-ids reales de este tablero**. Con `MONDAY_API_TOKEN` ya configurado:
+Monday identifica cada columna por un id interno, no por el título visible. Los defaults en
+`src/lib/ingesta/monday.ts` ya son los ids reales de este tablero — se confirmaron el 2026-09-03
+contra la API con `listarColumnas()` y un `items_page` de prueba, no adivinados. Solo hace falta
+declarar las variables `MONDAY_COL_*` si el tablero cambia de estructura (columna renombrada,
+agregada o borrada); para volver a confirmarlos:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" \
   "https://pixel-dashboard-delta.vercel.app/api/cron/sincronizar-monday?columnas=1"
 ```
 
-Esto regresa `{ id, title, type }` de cada columna real del tablero. Ajusta las variables
-`MONDAY_COL_*` en `.env.local`/Vercel para las que no coincidan con el default.
+Dos particularidades que ya están resueltas en el código, no hace falta tocarlas:
+- **Días de activación** es una columna fórmula — su valor no viene en el campo `text` normal de
+  la API, sino en `display_value` (se pide con el fragmento `... on FormulaValue` en la query).
+- **Tipo de Negocio** trae valores en español e inglés ("Cliente existente", "New Business",
+  "Existing Business") — `tipoCliente()` en `sanitizar.ts` ya reconoce ambos idiomas.
 
 ### Sincronización
 
