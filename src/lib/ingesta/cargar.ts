@@ -13,6 +13,7 @@ import {
   agregarPorVendedor, normalizar, sanearLote,
   type DealCrudo, type Diccionarios, type DealSaneado,
 } from "./sanitizar";
+import { resolverVendedor } from "./monday";
 
 export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionarios> {
   const [perfiles, alias, mapaOwners, periodos, catalogo] = await Promise.all([
@@ -280,4 +281,98 @@ export async function ingestarSemaforo(
   }).eq("id", ingestaId);
 
   return { ingestaId, aplicadas, sinMapear };
+}
+
+/**
+ * Carga los cierres del tablero de Monday (división de montos entre
+ * vendedor principal y covendedor). No toca hubspot_deals ni kpi_mensual —
+ * solo alimenta monday_cierres; el reparto real lo hace la vista
+ * v_atribucion_comercial en el momento de leer.
+ */
+export async function ingestarCierresMonday(
+  db: SupabaseClient,
+  crudos: Array<{
+    elemento_id: string;
+    hubspot_id_ref: string | null;
+    vendedor_principal_nombre: string | null;
+    covendedor_nombre: string | null;
+    monto_total: number | null;
+    porcentaje_division: number | null;
+    monto_vendedor: number | null;
+    monto_covendedor: number | null;
+    estado_proyecto: string | null;
+    mes_evento: string | null;
+    fecha_cierre: string | null;
+    raw: unknown;
+  }>,
+  opciones: { tipo: "monday_api" | "monday_cron" },
+): Promise<{ ingestaId: number; filasOk: number; sinAsignar: number }> {
+  const { data: ingesta, error: errIngesta } = await db
+    .from("ingestas")
+    .insert({ tipo: opciones.tipo, filas_leidas: crudos.length })
+    .select("id")
+    .single();
+  if (errIngesta) throw new Error(`No se pudo abrir la ingesta: ${errIngesta.message}`);
+  const ingestaId = ingesta.id as number;
+
+  try {
+    const dic = await cargarDiccionarios(db);
+    let sinAsignar = 0;
+
+    const filas = crudos.map((c) => {
+      const vendedorPrincipalId = resolverVendedor(c.vendedor_principal_nombre, dic.porAlias);
+      const covendedorId = resolverVendedor(c.covendedor_nombre, dic.porAlias);
+      if (!vendedorPrincipalId) sinAsignar += 1;
+
+      // Si Monday no trae los montos ya repartidos, se derivan del % de división.
+      const pct = c.porcentaje_division;
+      const montoVendedor = c.monto_vendedor
+        ?? (c.monto_total != null && pct != null ? Math.round(c.monto_total * (pct / 100) * 100) / 100 : c.monto_total);
+      const montoCovendedor = covendedorId
+        ? c.monto_covendedor
+          ?? (c.monto_total != null && pct != null ? Math.round(c.monto_total * (1 - pct / 100) * 100) / 100 : null)
+        : null;
+
+      return {
+        elemento_id: c.elemento_id,
+        hubspot_id_ref: c.hubspot_id_ref,
+        vendedor_principal_id: vendedorPrincipalId ?? null,
+        covendedor_id: covendedorId,
+        monto_total: c.monto_total,
+        porcentaje_division: pct,
+        monto_vendedor: montoVendedor,
+        monto_covendedor: montoCovendedor,
+        estado_proyecto: c.estado_proyecto,
+        mes_evento: c.mes_evento,
+        fecha_cierre: c.fecha_cierre,
+        ingesta_id: ingestaId,
+        raw: c.raw,
+        actualizado_en: new Date().toISOString(),
+      };
+    });
+
+    for (let i = 0; i < filas.length; i += 500) {
+      const { error } = await db
+        .from("monday_cierres")
+        .upsert(filas.slice(i, i + 500), { onConflict: "elemento_id" });
+      if (error) throw new Error(`Error al escribir cierres de Monday: ${error.message}`);
+    }
+
+    await db.from("ingestas").update({
+      estatus: sinAsignar > 0 ? "completada_con_avisos" : "completada",
+      terminado_en: new Date().toISOString(),
+      filas_ok: filas.length - sinAsignar,
+      filas_sanitizadas: sinAsignar,
+      resumen: { sin_asignar: sinAsignar },
+    }).eq("id", ingestaId);
+
+    return { ingestaId, filasOk: filas.length - sinAsignar, sinAsignar };
+  } catch (e) {
+    await db.from("ingestas").update({
+      estatus: "error",
+      terminado_en: new Date().toISOString(),
+      error: e instanceof Error ? e.message : String(e),
+    }).eq("id", ingestaId);
+    throw e;
+  }
 }

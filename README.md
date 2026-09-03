@@ -275,4 +275,51 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 Cada corrida deja su registro en `ingestas` y se ve en `/ingesta`. En el plan **Hobby** de Vercel
 los crons corren **una vez al día** y la función tiene 60 s de tope; en Pro puedes bajar a cada hora
-y subir `maxDuration` a 300. 
+y subir `maxDuration` a 300.
+
+---
+
+## 8. Conexión con Monday.com (ventas divididas)
+
+HubSpot modela un deal con un solo owner. Cuando dos vendedores colaboran en el mismo evento, la
+división real de montos se lleva en el tablero de Monday **"Deals Ganados 2026 - HubSpot"**
+(`board_id 18408527402`) — no en HubSpot. `006_monday_cierres.sql` agrega `monday_cierres` para esa
+información y la vista `v_atribucion_comercial`, que reparte el monto ganado entre vendedor
+principal y covendedor cuando Monday registra una división; sin división, la atribución es íntegra
+al owner de HubSpot (sin cambio respecto a antes).
+
+### Ids de columna — hay que confirmarlos, no son los reales todavía
+
+Monday identifica cada columna por un id interno, no por el título visible, y cambia entre
+tableros. Los defaults en `src/lib/ingesta/monday.ts` (`text_hubspot_id`, `person`, `co_vendedor`,
+`monto_total`, `porcentaje_division`, `monto_vendedor`, `monto_covendedor`, `status`, `mes_evento`,
+`date`) son un punto de partida razonable, **no los ids reales de este tablero**. Con
+`MONDAY_API_TOKEN` ya configurado:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://pixel-dashboard-delta.vercel.app/api/cron/sincronizar-monday?columnas=1"
+```
+
+Esto regresa `{ id, title, type }` de cada columna real del tablero. Ajusta las variables
+`MONDAY_COL_*` en `.env.local`/Vercel para las que no coincidan con el default.
+
+### Sincronización
+
+`vercel.json` agrega un segundo cron diario a las **15:30 UTC**, 30 minutos después del de HubSpot
+para que `hubspot_deals` ya tenga los deals del día cuando se calcule la atribución. Llama a
+`GET /api/cron/sincronizar-monday`, con la misma autenticación (`Authorization: Bearer $CRON_SECRET`
+o `?secret=`) que el cron de HubSpot. El plan **Hobby** de Vercel permite hasta 2 cron jobs — este es
+el segundo, no queda margen para un tercero sin subir de plan.
+
+```bash
+# prueba manual
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://pixel-dashboard-delta.vercel.app/api/cron/sincronizar-monday"
+```
+
+Los nombres de "Vendedor principal" y "Covendedor" que trae Monday se resuelven a `vendedor_id`
+con el mismo diccionario de alias que usa el resto de la ingesta (`profiles`, `profile_alias`,
+`hubspot_owner_map`) — si Monday trae un nombre que no coincide con ningún alias conocido, el
+cierre se guarda igual (nada se descarta) pero queda sin vendedor asignado, visible en el
+resumen de la corrida (`sin_asignar`). 
