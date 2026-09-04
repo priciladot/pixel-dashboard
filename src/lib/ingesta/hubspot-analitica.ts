@@ -108,14 +108,17 @@ export async function idsDealsCerrados(desde: string, hasta: string): Promise<st
  * pasos porque la API de HubSpot lo exige así: 1) buscar los ids en el
  * rango (closedate, igual que buscarDeals() en hubspot.ts), 2) pedir su
  * historial vía `POST /deals/batch/read` con `propertiesWithHistory` — el
- * único endpoint que de verdad lo devuelve, en lotes de 100 ids.
+ * único endpoint que de verdad lo devuelve. Ese endpoint acepta lotes de
+ * 100 ids normalmente, pero HubSpot limita a 50 cuando la petición lleva
+ * `propertiesWithHistory` (lo confirma el propio error de la API, no es un
+ * límite documentado de antemano) — de ahí el paso de 50, no de 100.
  */
 export async function buscarHistorialEtapas(desde: string, hasta: string): Promise<CambioEtapa[]> {
   const ids = await idsDealsCerrados(desde, hasta);
   const salida: CambioEtapa[] = [];
 
-  for (let i = 0; i < ids.length; i += 100) {
-    const lote = ids.slice(i, i + 100);
+  for (let i = 0; i < ids.length; i += 50) {
+    const lote = ids.slice(i, i + 50);
     const r = await api<{ results: DealConHistoria[] }>(
       "/crm/v3/objects/deals/batch/read",
       {
