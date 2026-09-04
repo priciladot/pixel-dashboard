@@ -416,6 +416,12 @@ export async function ingestarAnaliticaHubspot(
     let engagementsSinAsignar = 0;
 
     if (!opciones.simulacion) {
+      // Todos los lotes de escritura (etapas + cada tipo de engagement +
+      // leads) son independientes entre sí — se disparan de una vez con
+      // Promise.all en vez de esperarlos uno por uno. Con ~4,500 filas la
+      // versión secuencial se pasaba del límite de 60s de Vercel Hobby.
+      const escrituras: Promise<void>[] = [];
+
       // 1. Historial de etapas — sin resolución de vendedor, no aplica.
       if (datos.etapas.length > 0) {
         const filas = datos.etapas.map((c) => ({
@@ -427,9 +433,12 @@ export async function ingestarAnaliticaHubspot(
           raw: c.raw,
         }));
         for (let i = 0; i < filas.length; i += 500) {
-          const { error } = await db.from("hubspot_deal_stages")
-            .upsert(filas.slice(i, i + 500), { onConflict: "hubspot_id,etapa_nueva,fecha_cambio" });
-          if (error) throw new Error(`Error al escribir historial de etapas: ${error.message}`);
+          const lote = filas.slice(i, i + 500);
+          escrituras.push((async () => {
+            const { error } = await db.from("hubspot_deal_stages")
+              .upsert(lote, { onConflict: "hubspot_id,etapa_nueva,fecha_cambio" });
+            if (error) throw new Error(`Error al escribir historial de etapas: ${error.message}`);
+          })());
         }
       }
 
@@ -456,9 +465,12 @@ export async function ingestarAnaliticaHubspot(
         });
         engagementsPorTipo[tipo] = filas.length;
         for (let i = 0; i < filas.length; i += 500) {
-          const { error } = await db.from("hubspot_engagements")
-            .upsert(filas.slice(i, i + 500), { onConflict: "tipo,hubspot_id" });
-          if (error) throw new Error(`Error al escribir ${tipo}: ${error.message}`);
+          const lote = filas.slice(i, i + 500);
+          escrituras.push((async () => {
+            const { error } = await db.from("hubspot_engagements")
+              .upsert(lote, { onConflict: "tipo,hubspot_id" });
+            if (error) throw new Error(`Error al escribir ${tipo}: ${error.message}`);
+          })());
         }
       }
 
@@ -475,11 +487,16 @@ export async function ingestarAnaliticaHubspot(
           actualizado_en: new Date().toISOString(),
         }));
         for (let i = 0; i < filas.length; i += 500) {
-          const { error } = await db.from("hubspot_leads")
-            .upsert(filas.slice(i, i + 500), { onConflict: "hubspot_id" });
-          if (error) throw new Error(`Error al escribir leads: ${error.message}`);
+          const lote = filas.slice(i, i + 500);
+          escrituras.push((async () => {
+            const { error } = await db.from("hubspot_leads")
+              .upsert(lote, { onConflict: "hubspot_id" });
+            if (error) throw new Error(`Error al escribir leads: ${error.message}`);
+          })());
         }
       }
+
+      await Promise.all(escrituras);
     } else {
       // En simulación se cuenta lo que se habría escrito, sin tocar la base.
       for (const [tipo, lista] of Object.entries(datos.engagements.porTipo)) {

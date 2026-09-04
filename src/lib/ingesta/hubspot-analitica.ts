@@ -115,22 +115,27 @@ export async function idsDealsCerrados(desde: string, hasta: string): Promise<st
  */
 export async function buscarHistorialEtapas(desde: string, hasta: string): Promise<CambioEtapa[]> {
   const ids = await idsDealsCerrados(desde, hasta);
+
+  // Los lotes de batch/read son búsquedas independientes entre sí (no hay
+  // cursor de paginación como en /search) — se piden todos en paralelo en
+  // vez de uno por uno. Con ~500 deals eso es ~10 lotes de golpe en vez de
+  // 10 vueltas secuenciales; dentro del límite de 100 req/10s de HubSpot.
+  const lotes: string[][] = [];
+  for (let i = 0; i < ids.length; i += 50) lotes.push(ids.slice(i, i + 50));
+
+  const resultados = await Promise.all(lotes.map((lote) =>
+    api<{ results: DealConHistoria[] }>("/crm/v3/objects/deals/batch/read", {
+      method: "POST",
+      body: JSON.stringify({
+        properties: [],
+        propertiesWithHistory: ["dealstage"],
+        inputs: lote.map((id) => ({ id })),
+      }),
+    }),
+  ));
+
   const salida: CambioEtapa[] = [];
-
-  for (let i = 0; i < ids.length; i += 50) {
-    const lote = ids.slice(i, i + 50);
-    const r = await api<{ results: DealConHistoria[] }>(
-      "/crm/v3/objects/deals/batch/read",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          properties: [],
-          propertiesWithHistory: ["dealstage"],
-          inputs: lote.map((id) => ({ id })),
-        }),
-      },
-    );
-
+  for (const r of resultados) {
     for (const d of r.results) {
       const historia = d.propertiesWithHistory?.dealstage ?? [];
       // HubSpot regresa el historial más reciente primero.
