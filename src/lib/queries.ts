@@ -1,4 +1,5 @@
 import { createClient } from "./supabase/server";
+import { etapaInfo } from "./pipeline-etapas";
 import type {
   Accion, Benchmark, ContextoMercado, Evaluacion, FilaBrecha,
   KpiVendedor, Perfil, Periodo, ResumenArea, Ventana,
@@ -243,19 +244,135 @@ export async function etapaActualDeals(periodoId: string, vendedorId?: string): 
   return (data as FilaEtapaActual[]) ?? [];
 }
 
-export interface DealEstancado extends FilaEtapaActual {
-  dias_sin_movimiento: number;
+export interface DealEstancado {
+  hubspot_id: string;
+  nombre: string | null;
+  monto_con_iva: number | null;
+  empresa: string | null;
+  etapa_actual: string;
+  vendedor_id: string | null;
+  dias_sin_actividad: number;
 }
 
-/** Deals abiertos (cerrado_ganado null) sin cambio de etapa en `diasUmbral` días o más. */
+/**
+ * Negocios en una etapa ABIERTA del pipeline (no Ganado/Perdido, decidido
+ * por la etapa vigente vía pipeline-etapas.ts) sin actividad real -- nota,
+ * correo, llamada, tarea o reunión, lo que sea más reciente -- en
+ * `diasUmbral` días o más. Antes filtraba por hubspot_deals.cerrado_ganado,
+ * que puede quedar desactualizado si el negocio se reactivó después del
+ * último sync de deals; por eso siempre daba 0 resultados.
+ */
 export async function dealsEstancados(periodoId: string, vendedorId?: string, diasUmbral = 7): Promise<DealEstancado[]> {
-  const filas = await etapaActualDeals(periodoId, vendedorId);
+  const supabase = await createClient();
+  let q = supabase.from("v_deal_actividad").select("*").eq("periodo_id", periodoId);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(2000);
+
   const ahora = Date.now();
-  return filas
-    .filter((f) => f.cerrado_ganado === null)
-    .map((f) => ({ ...f, dias_sin_movimiento: Math.floor((ahora - new Date(f.fecha_ultimo_cambio).getTime()) / 86_400_000) }))
-    .filter((f) => f.dias_sin_movimiento >= diasUmbral)
-    .sort((a, b) => b.dias_sin_movimiento - a.dias_sin_movimiento);
+  return ((data as Array<{
+    hubspot_id: string; nombre: string | null; monto_con_iva: number | null; empresa: string | null;
+    etapa_actual: string; vendedor_id: string | null; fecha_ultima_actividad: string;
+  }>) ?? [])
+    .filter((f) => etapaInfo(f.etapa_actual)?.resultado === "abierto")
+    .map((f) => ({
+      hubspot_id: f.hubspot_id,
+      nombre: f.nombre,
+      monto_con_iva: f.monto_con_iva,
+      empresa: f.empresa,
+      etapa_actual: f.etapa_actual,
+      vendedor_id: f.vendedor_id,
+      dias_sin_actividad: Math.floor((ahora - new Date(f.fecha_ultima_actividad).getTime()) / 86_400_000),
+    }))
+    .filter((f) => f.dias_sin_actividad >= diasUmbral)
+    .sort((a, b) => b.dias_sin_actividad - a.dias_sin_actividad);
+}
+
+export interface AccionPrioritaria {
+  hubspot_id: string;
+  asunto: string | null;
+  fecha: string | null;
+  vendedor_id: string | null;
+  deal_nombre: string | null;
+  deal_monto_con_iva: number | null;
+  empresa: string | null;
+  correo_cliente: string | null;
+}
+
+/** Top N tareas vencidas, ordenadas por el monto del deal asociado -- no por antigüedad. */
+export async function accionesPrioritarias(vendedorId?: string, limite = 5): Promise<AccionPrioritaria[]> {
+  const supabase = await createClient();
+  let q = supabase
+    .from("hubspot_engagements")
+    .select("hubspot_id, asunto, fecha, vendedor_id, deal_id_ref")
+    .eq("tipo", "task")
+    .or("estado.neq.COMPLETED,estado.is.null")
+    .not("deal_id_ref", "is", null);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(1000);
+
+  const hoy = new Date().toISOString();
+  type FilaTarea = { hubspot_id: string; asunto: string | null; fecha: string | null; vendedor_id: string | null; deal_id_ref: string };
+  const vencidas = ((data as FilaTarea[]) ?? []).filter((t) => t.fecha != null && t.fecha < hoy);
+  if (vencidas.length === 0) return [];
+
+  const dealIds = [...new Set(vencidas.map((t) => t.deal_id_ref))];
+  const [{ data: deals }, { data: mondayRows }] = await Promise.all([
+    supabase.from("hubspot_deals").select("hubspot_id, nombre, monto_con_iva").in("hubspot_id", dealIds),
+    supabase.from("monday_cierres").select("hubspot_id, empresa, correo_cliente").in("hubspot_id", dealIds),
+  ]);
+  const mapaDeals = new Map((deals as Array<{ hubspot_id: string; nombre: string | null; monto_con_iva: number | null }> ?? []).map((d) => [d.hubspot_id, d]));
+  const mapaMonday = new Map((mondayRows as Array<{ hubspot_id: string; empresa: string | null; correo_cliente: string | null }> ?? []).map((m) => [m.hubspot_id, m]));
+
+  return vencidas
+    .map((t) => {
+      const deal = mapaDeals.get(t.deal_id_ref);
+      const monday = mapaMonday.get(t.deal_id_ref);
+      return {
+        hubspot_id: t.hubspot_id,
+        asunto: t.asunto,
+        fecha: t.fecha,
+        vendedor_id: t.vendedor_id,
+        deal_nombre: deal?.nombre ?? null,
+        deal_monto_con_iva: deal?.monto_con_iva ?? null,
+        empresa: monday?.empresa ?? null,
+        correo_cliente: monday?.correo_cliente ?? null,
+      };
+    })
+    .sort((a, b) => (b.deal_monto_con_iva ?? 0) - (a.deal_monto_con_iva ?? 0))
+    .slice(0, limite);
+}
+
+export interface VentaProducto {
+  hubspot_id: string;
+  vendedor_id: string | null;
+  empresa: string | null;
+  correo_cliente: string | null;
+  productos: string | null;
+  monto_con_iva: number | null;
+}
+
+/** Negocios ganados del periodo con su empresa/producto de Monday, para el desglose por vendedor. */
+export async function ventasConProducto(periodoId: string, vendedorId?: string): Promise<VentaProducto[]> {
+  const supabase = await createClient();
+  let q = supabase
+    .from("v_deals_operativo")
+    .select("hubspot_id, vendedor_id, empresa, correo_cliente, productos, monto_atribuido_con_iva")
+    .eq("periodo_id", periodoId)
+    .eq("cerrado_ganado", true);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(1000);
+
+  return ((data as Array<{
+    hubspot_id: string; vendedor_id: string | null; empresa: string | null;
+    correo_cliente: string | null; productos: string | null; monto_atribuido_con_iva: number | null;
+  }>) ?? []).map((r) => ({
+    hubspot_id: r.hubspot_id,
+    vendedor_id: r.vendedor_id,
+    empresa: r.empresa,
+    correo_cliente: r.correo_cliente,
+    productos: r.productos,
+    monto_con_iva: r.monto_atribuido_con_iva,
+  }));
 }
 
 export interface MotivoPerdida {
