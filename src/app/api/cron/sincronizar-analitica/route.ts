@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads, idsDealsCerrados } from "@/lib/ingesta/hubspot-analitica";
+import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads, idsDealsCerrados, listarEtapasPipeline } from "@/lib/ingesta/hubspot-analitica";
 import { ingestarAnaliticaHubspot } from "@/lib/ingesta/cargar";
 
 export const runtime = "nodejs";
@@ -41,6 +41,16 @@ export async function GET(req: Request) {
     url.searchParams.get("secret") === secreto;
   if (!autorizado) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
+  if (url.searchParams.get("etapas") === "1") {
+    try {
+      const etapas = await listarEtapasPipeline();
+      return NextResponse.json({ ok: true, etapas });
+    } catch (e) {
+      const mensaje = e instanceof Error ? e.message : "Error desconocido";
+      return NextResponse.json({ ok: false, error: mensaje }, { status: 500 });
+    }
   }
 
   const forzado = url.searchParams.get("periodo");

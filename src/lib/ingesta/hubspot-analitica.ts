@@ -159,6 +159,30 @@ export async function buscarHistorialEtapas(desde: string, hasta: string): Promi
 /* 2. Actividades y tareas — un objeto CRM por tipo, un scope por tipo */
 /* ------------------------------------------------------------------ */
 
+export interface EtapaPipeline {
+  id: string;
+  label: string;
+  orden: number;
+}
+
+/**
+ * Nombres reales de las etapas del pipeline (dealstage guarda solo el id
+ * numérico, ej. "45202797" — sin esto no hay forma de mostrar un embudo
+ * legible). Se pide el pipeline configurado en HUBSPOT_PIPELINE_ID; si no
+ * está definido o es "default", se trae el pipeline por default de HubSpot.
+ */
+export async function listarEtapasPipeline(): Promise<EtapaPipeline[]> {
+  const pipelineId = process.env.HUBSPOT_PIPELINE_ID;
+  const ruta = pipelineId && pipelineId !== "default"
+    ? `/crm/v3/pipelines/deals/${pipelineId}`
+    : `/crm/v3/pipelines/deals/default`;
+
+  const r = await api<{ stages: Array<{ id: string; label: string; displayOrder: number }> }>(ruta);
+  return r.stages
+    .map((s) => ({ id: s.id, label: s.label, orden: s.displayOrder }))
+    .sort((a, b) => a.orden - b.orden);
+}
+
 export type TipoEngagement = "call" | "email" | "meeting" | "note" | "task";
 
 const ENDPOINT_POR_TIPO: Record<TipoEngagement, string> = {
