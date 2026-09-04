@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads } from "@/lib/ingesta/hubspot-analitica";
+import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads, idsDealsCerrados } from "@/lib/ingesta/hubspot-analitica";
 import { ingestarAnaliticaHubspot } from "@/lib/ingesta/cargar";
 
 export const runtime = "nodejs";
@@ -69,6 +69,13 @@ export async function GET(req: Request) {
   }
 
   try {
+    // Diagnóstico temporal: cuántos ids de deal cerrados encuentra el primer
+    // paso, para aislar si un "etapas: 0" es porque no hay ids o porque el
+    // batch/read no trae historial para esos ids.
+    const idsDiagnostico = url.searchParams.get("diagnostico") === "1"
+      ? await idsDealsCerrados(objetivo.kpi_inicio, objetivo.kpi_fin)
+      : null;
+
     const [etapas, engagements, leads] = await Promise.all([
       buscarHistorialEtapas(objetivo.kpi_inicio, objetivo.kpi_fin),
       buscarTodosLosEngagements(objetivo.kpi_inicio, objetivo.kpi_fin),
@@ -90,6 +97,7 @@ export async function GET(req: Request) {
       rango: { desde: objetivo.kpi_inicio, hasta: objetivo.kpi_fin },
       ingestaId: r.ingestaId,
       etapas: r.etapas,
+      ...(idsDiagnostico ? { idsDealsCerradosEncontrados: idsDiagnostico.length } : {}),
       engagementsPorTipo: r.engagementsPorTipo,
       engagementsSinAsignar: r.engagementsSinAsignar,
       leads: r.leads,

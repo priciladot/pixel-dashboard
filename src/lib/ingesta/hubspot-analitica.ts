@@ -74,7 +74,7 @@ interface DealConHistoria {
  * `propertiesWithHistory` (HubSpot lo ignora en silencio ahí, no da error)
  * — por eso el historial se trae aparte, en un segundo paso con batch/read.
  */
-async function idsDealsCerrados(desde: string, hasta: string): Promise<string[]> {
+export async function idsDealsCerrados(desde: string, hasta: string): Promise<string[]> {
   const ids: string[] = [];
   let after: string | undefined;
 
