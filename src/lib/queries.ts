@@ -1,5 +1,6 @@
 import { createClient } from "./supabase/server";
 import { etapaInfo, nombreEtapa } from "./pipeline-etapas";
+import { dinero } from "./format";
 import type {
   Accion, Benchmark, ContextoMercado, Evaluacion, FilaBrecha,
   KpiVendedor, Perfil, Periodo, ResumenArea, Ventana,
@@ -511,4 +512,140 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
     sinRegistroMonday,
     totalDeals: filas.length,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Alertas de higiene y auditoría comercial (HubSpot vs. Monday)        */
+/* ------------------------------------------------------------------ */
+
+export interface AlertaAuditoria {
+  tipo: "ganado_sin_monday" | "monday_sin_canal" | "sin_atencion";
+  hubspot_id: string;
+  vendedor_id: string | null;
+  nombre: string | null;
+  monto_con_iva: number | null;
+  mensaje: string;
+}
+
+/** Negocios ganados en HubSpot que nunca se registraron en el tablero de Monday. */
+async function ganadosSinMonday(
+  supabase: Awaited<ReturnType<typeof createClient>>, periodoId: string, vendedorId: string | undefined,
+  mapaVendedores: Map<string, string>,
+): Promise<AlertaAuditoria[]> {
+  let q = supabase.from("hubspot_deals")
+    .select("hubspot_id, nombre, monto_con_iva, vendedor_id")
+    .eq("periodo_id", periodoId)
+    .eq("cerrado_ganado", true);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data: ganados } = await q.limit(1000);
+  const filas = (ganados as Array<{ hubspot_id: string; nombre: string | null; monto_con_iva: number | null; vendedor_id: string | null }>) ?? [];
+  if (filas.length === 0) return [];
+
+  const ids = filas.map((d) => d.hubspot_id);
+  const { data: enMonday } = await supabase.from("monday_cierres").select("hubspot_id").in("hubspot_id", ids);
+  const registrados = new Set(((enMonday as Array<{ hubspot_id: string }>) ?? []).map((m) => m.hubspot_id));
+
+  return filas
+    .filter((d) => !registrados.has(d.hubspot_id))
+    .map((d) => {
+      const vendedor = d.vendedor_id ? mapaVendedores.get(d.vendedor_id) ?? "Sin asignar" : "Sin asignar";
+      const negocio = d.nombre ?? `#${d.hubspot_id}`;
+      return {
+        tipo: "ganado_sin_monday" as const,
+        hubspot_id: d.hubspot_id,
+        vendedor_id: d.vendedor_id,
+        nombre: d.nombre,
+        monto_con_iva: d.monto_con_iva,
+        mensaje: `${vendedor}: el trato "${negocio}" por ${dinero(d.monto_con_iva)} no ha sido cargado a Monday.`,
+      };
+    });
+}
+
+/** Negocios que sí están en Monday pero sin la columna "¿Cómo llegó?" capturada. */
+async function mondaySinCanal(
+  supabase: Awaited<ReturnType<typeof createClient>>, periodoId: string, vendedorId: string | undefined,
+  mapaVendedores: Map<string, string>,
+): Promise<AlertaAuditoria[]> {
+  let q = supabase.from("v_deals_operativo")
+    .select("hubspot_id, vendedor_id, empresa, monto_atribuido_con_iva, monday_elemento_id, como_llego")
+    .eq("periodo_id", periodoId)
+    .not("monday_elemento_id", "is", null)
+    .is("como_llego", null);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(1000);
+
+  return ((data as Array<{
+    hubspot_id: string; vendedor_id: string | null; empresa: string | null; monto_atribuido_con_iva: number | null;
+  }>) ?? []).map((r) => {
+    const vendedor = r.vendedor_id ? mapaVendedores.get(r.vendedor_id) ?? "Sin asignar" : "Sin asignar";
+    const empresa = r.empresa ?? `#${r.hubspot_id}`;
+    return {
+      tipo: "monday_sin_canal" as const,
+      hubspot_id: r.hubspot_id,
+      vendedor_id: r.vendedor_id,
+      nombre: r.empresa,
+      monto_con_iva: r.monto_atribuido_con_iva,
+      mensaje: `${vendedor}: el registro de "${empresa}" en Monday no tiene definido el canal ("¿Cómo llegó?").`,
+    };
+  });
+}
+
+/** Negocios abiertos en etapa activa sin NINGUNA nota/llamada/tarea/reunión real en `diasUmbral` días -- un cambio de etapa no cuenta como atención. */
+async function sinAtencion(
+  supabase: Awaited<ReturnType<typeof createClient>>, periodoId: string, vendedorId: string | undefined,
+  mapaVendedores: Map<string, string>, diasUmbral: number,
+): Promise<AlertaAuditoria[]> {
+  let q = supabase.from("v_deal_actividad").select("*").eq("periodo_id", periodoId);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(2000);
+
+  const ahora = Date.now();
+  return ((data as Array<{
+    hubspot_id: string; nombre: string | null; monto_con_iva: number | null;
+    etapa_actual: string; vendedor_id: string | null; ultima_actividad_engagement: string | null;
+  }>) ?? [])
+    .filter((f) => etapaInfo(f.etapa_actual)?.resultado === "abierto")
+    .map((f) => {
+      // Sin ninguna actividad jamás: se ordena como "el más urgente de todos", pero como un
+      // número finito, no Infinity -- restar dos Infinity da NaN y descompone el sort.
+      const dias = f.ultima_actividad_engagement == null
+        ? Number.MAX_SAFE_INTEGER
+        : Math.floor((ahora - new Date(f.ultima_actividad_engagement).getTime()) / 86_400_000);
+      return { ...f, dias };
+    })
+    .filter((f) => f.dias >= diasUmbral)
+    .sort((a, b) => b.dias - a.dias)
+    .map((f) => {
+      const vendedor = f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar";
+      const negocio = f.nombre ?? `#${f.hubspot_id}`;
+      const diasTexto = f.dias === Number.MAX_SAFE_INTEGER ? "nunca ha tenido" : `lleva ${f.dias} días sin`;
+      return {
+        tipo: "sin_atencion" as const,
+        hubspot_id: f.hubspot_id,
+        vendedor_id: f.vendedor_id,
+        nombre: f.nombre,
+        monto_con_iva: f.monto_con_iva,
+        mensaje: `${vendedor}: "${negocio}" ${diasTexto} ningún seguimiento o nota de atención registrada.`,
+      };
+    });
+}
+
+/**
+ * Alertas de higiene y auditoría comercial: cruza HubSpot contra Monday y
+ * la actividad real registrada, para convertir huecos de captura en
+ * pendientes concretos en vez de dejarlos como una métrica pasiva.
+ */
+export async function alertasHigiene(periodoId: string, vendedorId?: string, diasSinAtencion = 5): Promise<AlertaAuditoria[]> {
+  const supabase = await createClient();
+  const personas = await vendedores();
+  const mapaVendedores = new Map(personas.map((p) => [p.id, p.nombre_corto]));
+
+  const [ganados, sinCanal, abandonados] = await Promise.all([
+    ganadosSinMonday(supabase, periodoId, vendedorId, mapaVendedores),
+    mondaySinCanal(supabase, periodoId, vendedorId, mapaVendedores),
+    sinAtencion(supabase, periodoId, vendedorId, mapaVendedores, diasSinAtencion),
+  ]);
+
+  return [...ganados, ...sinCanal, ...abandonados]
+    .sort((a, b) => (b.monto_con_iva ?? 0) - (a.monto_con_iva ?? 0));
 }

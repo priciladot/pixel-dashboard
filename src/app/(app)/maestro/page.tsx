@@ -4,9 +4,9 @@ import { requiereRol } from "@/lib/auth";
 import {
   kpisDelPeriodo, periodos, resumenArea, vendedores, dealsPorRevisar,
   tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday,
-  accionesPrioritarias, ventasConProducto,
+  accionesPrioritarias, ventasConProducto, alertasHigiene,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday,
-  type AccionPrioritaria, type VentaProducto, type DealPorRevisar,
+  type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
 } from "@/lib/queries";
 import { Card, KpiCard, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
@@ -33,7 +33,7 @@ export default async function Maestro({
   const ventana: Ventana = sp.ventana === "calendario" ? "calendario" : "kpi_4_semanas";
   const periodo = lista.find((p) => p.id === periodoId)!;
 
-  const [equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday, acciones, ventasProducto] = await Promise.all([
+  const [equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday, acciones, ventasProducto, higiene] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
     vendedores(),
@@ -45,6 +45,7 @@ export default async function Maestro({
     resumenOperativoMonday(periodoId, sp.vendedor),
     accionesPrioritarias(periodoId, sp.vendedor, 10),
     ventasConProducto(periodoId, sp.vendedor),
+    alertasHigiene(periodoId, sp.vendedor, 5),
   ]);
 
   const filas = sp.vendedor ? equipo.filter((f) => f.vendedor_id === sp.vendedor) : equipo;
@@ -134,6 +135,18 @@ export default async function Maestro({
         }
       >
         <NegociosEstancados filas={estancados} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+      </Seccion>
+
+      {/* Auditoría de higiene: HubSpot vs. Monday ---------------------------- */}
+      <Seccion
+        titulo={`Focos rojos de auditoría e higiene (${higiene.length})`}
+        descripcion={
+          seleccionado
+            ? `Inconsistencias de captura de ${seleccionado.nombre_corto} entre HubSpot y Monday, y clientes sin atención 5+ días.`
+            : "Inconsistencias de captura entre HubSpot y Monday, y clientes sin atención 5+ días, para todo el equipo."
+        }
+      >
+        <AlertasHigiene alertas={higiene} />
       </Seccion>
 
       {/* Resumen ejecutivo ------------------------------------------------ */}
@@ -632,5 +645,35 @@ function VentasProductosTabla({
         {filas.length} negocios ganados con cruce de Monday. Los que no tienen registro en Monday no aparecen aquí — empresa y producto solo existen para negocios capturados en ese tablero.
       </p>
     </Card>
+  );
+}
+
+const ETIQUETA_ALERTA: Record<AlertaAuditoria["tipo"], string> = {
+  ganado_sin_monday: "Falta en Monday",
+  monday_sin_canal: "Canal sin capturar",
+  sin_atencion: "Sin atención",
+};
+
+/** Discrepancias HubSpot vs. Monday y clientes sin seguimiento real -- convierte el hueco de captura en pendientes concretos. */
+function AlertasHigiene({ alertas }: { alertas: AlertaAuditoria[] }) {
+  if (alertas.length === 0) {
+    return (
+      <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
+        Sin inconsistencias de captura ni clientes sin atención en este periodo.
+      </Card>
+    );
+  }
+
+  return (
+    <ul className="space-y-2">
+      {alertas.map((a) => (
+        <li key={`${a.tipo}-${a.hubspot_id}`} className="flex items-start gap-3 rounded-card border border-[#f4cbb6] bg-[#fdeee7] px-3.5 py-2.5">
+          <span className="mt-0.5 shrink-0 rounded border border-[#f4cbb6] bg-white px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#a04a25]">
+            {ETIQUETA_ALERTA[a.tipo]}
+          </span>
+          <p className="text-[13px] text-ink">{a.mensaje}</p>
+        </li>
+      ))}
+    </ul>
   );
 }
