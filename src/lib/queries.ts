@@ -331,6 +331,6 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
     porTipoNegocio: [...porTipoMapa.entries()].map(([tipo, v]) => ({ tipo, deals: v.deals, monto_con_iva: v.monto })),
     porCanal: [...porCanalMapa.entries()]
       .map(([canal, v]) => ({ canal, deals: v.deals, monto_con_iva: v.monto }))
-      .sort((a, b) => b.monto - a.monto),
+      .sort((a, b) => b.monto_con_iva - a.monto_con_iva),
   };
 }
