@@ -4,9 +4,10 @@ import { requiereRol } from "@/lib/auth";
 import {
   kpisDelPeriodo, periodos, resumenArea, vendedores, dealsPorRevisar,
   tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday,
-  accionesPrioritarias, ventasConProducto, alertasHigiene,
+  accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
+  type ProductoSemana, type DealProyectado, type RangoSemana,
 } from "@/lib/queries";
 import { Card, KpiCard, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
@@ -33,7 +34,10 @@ export default async function Maestro({
   const ventana: Ventana = sp.ventana === "calendario" ? "calendario" : "kpi_4_semanas";
   const periodo = lista.find((p) => p.id === periodoId)!;
 
-  const [equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday, acciones, ventasProducto, higiene] = await Promise.all([
+  const [
+    equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday,
+    acciones, ventasProducto, higiene, semanaPasada, proyeccion,
+  ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
     vendedores(),
@@ -46,6 +50,8 @@ export default async function Maestro({
     accionesPrioritarias(periodoId, sp.vendedor, 10),
     ventasConProducto(periodoId, sp.vendedor),
     alertasHigiene(periodoId, sp.vendedor, 5),
+    productosSemanaPasada(sp.vendedor),
+    proyeccionProximaSemana(sp.vendedor),
   ]);
 
   const filas = sp.vendedor ? equipo.filter((f) => f.vendedor_id === sp.vendedor) : equipo;
@@ -147,6 +153,21 @@ export default async function Maestro({
         }
       >
         <AlertasHigiene alertas={higiene} />
+      </Seccion>
+
+      {/* Semana pasada / próxima semana (calendario S1-S4 real) ------------- */}
+      <Seccion
+        titulo="Cierre de la semana"
+        descripcion={
+          seleccionado
+            ? `Lo que ${seleccionado.nombre_corto} cerró la semana pasada y lo que tiene proyectado para la próxima, con fechas reales de HubSpot.`
+            : "Lo que el equipo cerró la semana pasada y lo que tiene proyectado para la próxima, con fechas reales de HubSpot."
+        }
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <ProductosSemanaPasada rango={semanaPasada.rango} filas={semanaPasada.filas} />
+          <ProyeccionSemana rango={proyeccion.rango} filas={proyeccion.filas} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+        </div>
       </Seccion>
 
       {/* Resumen ejecutivo ------------------------------------------------ */}
@@ -675,5 +696,81 @@ function AlertasHigiene({ alertas }: { alertas: AlertaAuditoria[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function rangoTexto(r: RangoSemana | null): string {
+  if (!r) return "sin calendario de semanas configurado";
+  return `${r.inicio} al ${r.fin}`;
+}
+
+/** Productos ganados en la semana pasada (fecha_cierre real), cruzados con Monday. */
+function ProductosSemanaPasada({ rango, filas }: { rango: RangoSemana | null; filas: ProductoSemana[] }) {
+  const total = filas.reduce((acc, f) => acc + f.monto_con_iva, 0);
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Semana pasada</h3>
+      <p className="mb-2.5 text-[11px] text-ink-muted">{rangoTexto(rango)}</p>
+      {filas.length === 0 ? (
+        <p className="text-[13px] text-ink-soft">Sin negocios ganados con fecha de cierre en esa semana.</p>
+      ) : (
+        <>
+          <ul className="space-y-1.5">
+            {filas.map((f) => (
+              <li key={f.producto} className="flex items-center gap-3 text-[12px]">
+                <span className="w-32 shrink-0 truncate text-ink-soft" title={f.producto}>{f.producto}</span>
+                <div className="flex-1">
+                  <div className="barra-pista">
+                    <div className="barra-valor" style={{ width: `${Math.max(2, (f.monto_con_iva / total) * 100)}%`, backgroundColor: "#1f9d55" }} />
+                  </div>
+                </div>
+                <span className="tabular w-28 shrink-0 text-right font-medium text-ink">
+                  {f.deals} · {dinero(f.monto_con_iva)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 border-t border-line pt-2 text-[12px] font-medium text-ink">Total: {dinero(total)}</p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Negocios en Cotización/Seguimiento 3-4 con fecha de cierre estimada la próxima semana. */
+function ProyeccionSemana({
+  rango, filas, mapaVendedores, mostrarVendedor,
+}: { rango: RangoSemana | null; filas: DealProyectado[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
+  const total = filas.reduce((acc, f) => acc + (f.monto_con_iva ?? 0), 0);
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Proyección próxima semana</h3>
+      <p className="mb-2.5 text-[11px] text-ink-muted">{rangoTexto(rango)} · Cotización y Seguimiento 3-4</p>
+      {filas.length === 0 ? (
+        <p className="text-[13px] text-ink-soft">Sin negocios en esas etapas con cierre estimado esa semana.</p>
+      ) : (
+        <>
+          <ul className="space-y-2">
+            {filas.slice(0, 8).map((f) => (
+              <li key={f.hubspot_id} className="flex items-center justify-between gap-3 border-b border-line/70 pb-1.5 text-[12px] last:border-0">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink" title={f.nombre ?? f.hubspot_id}>{f.nombre ?? `#${f.hubspot_id}`}</p>
+                  <p className="text-ink-muted">
+                    {nombreEtapa(f.etapa_actual)}
+                    {mostrarVendedor && f.vendedor_id && ` · ${mapaVendedores.get(f.vendedor_id) ?? "Sin asignar"}`}
+                  </p>
+                </div>
+                <span className="shrink-0 tabular font-medium text-ink">{dinero(f.monto_con_iva)}</span>
+              </li>
+            ))}
+            {filas.length > 8 && <li className="text-[11px] text-ink-muted">y {filas.length - 8} más…</li>}
+          </ul>
+          <p className="mt-2 border-t border-line pt-2 text-[12px] font-medium text-ink">
+            Proyectado a cerrar: {dinero(total)}
+            <span className="ml-1 font-normal text-ink-muted">— estimado, no garantizado</span>
+          </p>
+        </>
+      )}
+    </Card>
   );
 }

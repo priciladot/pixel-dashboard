@@ -649,3 +649,103 @@ export async function alertasHigiene(periodoId: string, vendedorId?: string, dia
   return [...ganados, ...sinCanal, ...abandonados]
     .sort((a, b) => (b.monto_con_iva ?? 0) - (a.monto_con_iva ?? 0));
 }
+
+/* ------------------------------------------------------------------ */
+/* Semana pasada / próxima semana (calendario S1-S4 real, no cortes de  */
+/* fecha inventados)                                                    */
+/* ------------------------------------------------------------------ */
+
+export interface RangoSemana { periodo_id: string; semana: number; inicio: string; fin: string }
+
+/** Semana que contiene hoy, y sus vecinas -- cruza de un periodo a otro sin problema porque se ordena por fecha, no por periodo_id. */
+async function semanaActualYVecinas(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<{ pasada: RangoSemana | null; siguiente: RangoSemana | null }> {
+  const { data } = await supabase.from("periodo_semanas").select("periodo_id, semana, inicio, fin").order("inicio", { ascending: true });
+  const filas = (data as RangoSemana[]) ?? [];
+  const hoy = new Date().toISOString().slice(0, 10);
+  const idx = filas.findIndex((f) => f.inicio <= hoy && hoy <= f.fin);
+  if (idx === -1) return { pasada: null, siguiente: null };
+  return { pasada: filas[idx - 1] ?? null, siguiente: filas[idx + 1] ?? null };
+}
+
+export interface ProductoSemana {
+  producto: string;
+  deals: number;
+  monto_con_iva: number;
+}
+
+/** Productos/servicios ganados la semana pasada (fecha_cierre real de HubSpot), cruzados con el producto de Monday. */
+export async function productosSemanaPasada(vendedorId?: string): Promise<{ rango: RangoSemana | null; filas: ProductoSemana[] }> {
+  const supabase = await createClient();
+  const { pasada } = await semanaActualYVecinas(supabase);
+  if (!pasada) return { rango: null, filas: [] };
+
+  let q = supabase.from("hubspot_deals")
+    .select("hubspot_id, monto_con_iva")
+    .eq("cerrado_ganado", true)
+    .gte("fecha_cierre", pasada.inicio)
+    .lte("fecha_cierre", `${pasada.fin}T23:59:59`);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data: deals } = await q.limit(1000);
+  const filas = (deals as Array<{ hubspot_id: string; monto_con_iva: number | null }>) ?? [];
+  if (filas.length === 0) return { rango: pasada, filas: [] };
+
+  const { data: mondayRows } = await supabase.from("monday_cierres").select("hubspot_id, productos").in("hubspot_id", filas.map((d) => d.hubspot_id));
+  const mapaProductos = new Map(((mondayRows as Array<{ hubspot_id: string; productos: string | null }>) ?? []).map((m) => [m.hubspot_id, m.productos]));
+
+  const mapa = new Map<string, { deals: number; monto: number }>();
+  for (const d of filas) {
+    const producto = mapaProductos.get(d.hubspot_id) ?? "Sin producto capturado en Monday";
+    const cur = mapa.get(producto) ?? { deals: 0, monto: 0 };
+    cur.deals += 1;
+    cur.monto += d.monto_con_iva ?? 0;
+    mapa.set(producto, cur);
+  }
+
+  return {
+    rango: pasada,
+    filas: [...mapa.entries()]
+      .map(([producto, v]) => ({ producto, deals: v.deals, monto_con_iva: v.monto }))
+      .sort((a, b) => b.monto_con_iva - a.monto_con_iva),
+  };
+}
+
+export interface DealProyectado {
+  hubspot_id: string;
+  nombre: string | null;
+  monto_con_iva: number | null;
+  vendedor_id: string | null;
+  etapa_actual: string;
+  fecha_cierre: string | null;
+}
+
+/** Negocios abiertos en Cotización/Seguimiento 3/4 (etapa VIGENTE, no la de hubspot_deals) con fecha de cierre estimada la próxima semana. */
+export async function proyeccionProximaSemana(vendedorId?: string): Promise<{ rango: RangoSemana | null; filas: DealProyectado[] }> {
+  const supabase = await createClient();
+  const { siguiente } = await semanaActualYVecinas(supabase);
+  if (!siguiente) return { rango: null, filas: [] };
+
+  const ETAPAS_PROYECTABLES = ["45202792", "1310311997", "1310311998"]; // Cotización, Seguimiento 3, Seguimiento 4
+  let q = supabase.from("v_deal_etapa_actual")
+    .select("hubspot_id, vendedor_id, nombre, monto_con_iva, etapa_actual")
+    .in("etapa_actual", ETAPAS_PROYECTABLES);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data: abiertos } = await q.limit(1000);
+  const candidatos = (abiertos as Omit<DealProyectado, "fecha_cierre">[]) ?? [];
+  if (candidatos.length === 0) return { rango: siguiente, filas: [] };
+
+  const { data: deals } = await supabase.from("hubspot_deals").select("hubspot_id, fecha_cierre")
+    .in("hubspot_id", candidatos.map((d) => d.hubspot_id))
+    .gte("fecha_cierre", siguiente.inicio)
+    .lte("fecha_cierre", `${siguiente.fin}T23:59:59`);
+  const fechaPorId = new Map(((deals as Array<{ hubspot_id: string; fecha_cierre: string | null }>) ?? []).map((d) => [d.hubspot_id, d.fecha_cierre]));
+
+  return {
+    rango: siguiente,
+    filas: candidatos
+      .filter((d) => fechaPorId.has(d.hubspot_id))
+      .map((d) => ({ ...d, fecha_cierre: fechaPorId.get(d.hubspot_id) ?? null }))
+      .sort((a, b) => (b.monto_con_iva ?? 0) - (a.monto_con_iva ?? 0)),
+  };
+}
