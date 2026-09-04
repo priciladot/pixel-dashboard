@@ -43,7 +43,7 @@ export default async function Maestro({
     dealsEstancados(periodoId, sp.vendedor, 7),
     motivosPerdida(periodoId, sp.vendedor),
     resumenOperativoMonday(periodoId, sp.vendedor),
-    accionesPrioritarias(sp.vendedor, 5),
+    accionesPrioritarias(periodoId, sp.vendedor, 10),
     ventasConProducto(periodoId, sp.vendedor),
   ]);
 
@@ -237,6 +237,13 @@ export default async function Maestro({
           <TipoNegocioResumen filas={operativoMonday.porTipoNegocio} />
           <CanalesVenta filas={operativoMonday.porCanal} />
         </div>
+        {operativoMonday.totalDeals > 0 && (
+          <p className="mt-3 text-[11px] text-ink-muted">
+            {operativoMonday.sinRegistroMonday} de {operativoMonday.totalDeals} negocios del periodo no tienen ninguna fila en Monday
+            (ese tablero solo registra negocios ganados, no todo el pipeline) — por eso "Sin clasificar" no baja a cero aunque el
+            mapeo de canal esté completo para los que sí cruzan.
+          </p>
+        )}
       </Seccion>
 
       {/* Motivos de pérdida -------------------------------------------------- */}
@@ -425,7 +432,7 @@ function AccionesPrioritarias({
   if (acciones.length === 0) {
     return (
       <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
-        Sin tareas vencidas con negocio asociado.
+        Sin tareas vencidas ni negocios estancados con datos suficientes en HubSpot.
       </Card>
     );
   }
@@ -433,8 +440,11 @@ function AccionesPrioritarias({
   return (
     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
       {acciones.map((a) => (
-        <Card key={a.hubspot_id} className="px-4 py-3.5">
-          <p className="text-[13px] font-medium text-ink">
+        <Card key={`${a.tipo}-${a.hubspot_id}`} className="px-4 py-3.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+            {a.tipo === "tarea_vencida" ? "Tarea vencida" : "Negocio estancado 30+ días"}
+          </p>
+          <p className="mt-1 text-[13px] font-medium text-ink">
             {a.asunto ?? "Dar seguimiento"}
             {a.empresa && <> — <span className="text-ink-soft">{a.empresa}</span></>}
           </p>
@@ -444,7 +454,9 @@ function AccionesPrioritarias({
           </p>
           {a.correo_cliente && <p className="mt-0.5 truncate text-[11px] text-ink-muted" title={a.correo_cliente}>{a.correo_cliente}</p>}
           <p className="mt-1.5 text-[12px] font-medium text-[#8a3b1f]">
-            Atrasada desde {a.fecha ? new Date(a.fecha).toLocaleDateString("es-MX") : "—"}
+            {a.tipo === "tarea_vencida"
+              ? `Atrasada desde ${a.fecha ? new Date(a.fecha).toLocaleDateString("es-MX") : "—"}`
+              : "Contactar hoy — sin actividad registrada"}
             {mostrarVendedor && a.vendedor_id && ` · ${mapaVendedores.get(a.vendedor_id) ?? "Sin asignar"}`}
           </p>
         </Card>
@@ -596,6 +608,7 @@ function VentasProductosTabla({
               <th className="px-4 py-2.5 font-medium">Empresa / Agencia</th>
               <th className="px-4 py-2.5 font-medium">Correo de contacto</th>
               <th className="px-4 py-2.5 font-medium">Producto(s)</th>
+              <th className="px-4 py-2.5 font-medium">Canal</th>
               <th className="px-4 py-2.5 font-medium">Monto (con IVA)</th>
             </tr>
           </thead>
@@ -608,6 +621,7 @@ function VentasProductosTabla({
                 <td className="px-4 py-2.5 text-ink-soft">{f.empresa ?? "—"}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{f.correo_cliente ?? "—"}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{f.productos ?? "—"}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{f.canal ?? "—"}</td>
                 <td className="px-4 py-2.5 tabular font-medium text-ink">{dinero(f.monto_con_iva)}</td>
               </tr>
             ))}
