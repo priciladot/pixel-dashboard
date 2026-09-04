@@ -70,12 +70,12 @@ interface DealConHistoria {
 }
 
 /**
- * Trae el historial de dealstage para los deals cerrados en el rango. Usa
- * el mismo filtro de búsqueda que buscarDeals() en hubspot.ts — el rango
- * debe ser la ventana de KPI del periodo, no el mes calendario.
+ * Ids de los deals cerrados en el rango. El endpoint de búsqueda no acepta
+ * `propertiesWithHistory` (HubSpot lo ignora en silencio ahí, no da error)
+ * — por eso el historial se trae aparte, en un segundo paso con batch/read.
  */
-export async function buscarHistorialEtapas(desde: string, hasta: string): Promise<CambioEtapa[]> {
-  const salida: CambioEtapa[] = [];
+async function idsDealsCerrados(desde: string, hasta: string): Promise<string[]> {
+  const ids: string[] = [];
   let after: string | undefined;
 
   do {
@@ -86,33 +86,63 @@ export async function buscarHistorialEtapas(desde: string, hasta: string): Promi
           { propertyName: "closedate", operator: "LTE", value: `${hasta}T23:59:59.999Z` },
         ],
       }],
-      propertiesWithHistory: ["dealstage"],
+      properties: [],
       limit: 100,
       ...(after ? { after } : {}),
     };
 
-    const r = await api<{ results: DealConHistoria[]; paging?: { next?: { after: string } } }>(
+    const r = await api<{ results: Array<{ id: string }>; paging?: { next?: { after: string } } }>(
       "/crm/v3/objects/deals/search",
       { method: "POST", body: JSON.stringify(cuerpo) },
+    );
+
+    ids.push(...r.results.map((d) => d.id));
+    after = r.paging?.next?.after;
+  } while (after);
+
+  return ids;
+}
+
+/**
+ * Trae el historial de dealstage para los deals cerrados en el rango. Dos
+ * pasos porque la API de HubSpot lo exige así: 1) buscar los ids en el
+ * rango (closedate, igual que buscarDeals() en hubspot.ts), 2) pedir su
+ * historial vía `POST /deals/batch/read` con `propertiesWithHistory` — el
+ * único endpoint que de verdad lo devuelve, en lotes de 100 ids.
+ */
+export async function buscarHistorialEtapas(desde: string, hasta: string): Promise<CambioEtapa[]> {
+  const ids = await idsDealsCerrados(desde, hasta);
+  const salida: CambioEtapa[] = [];
+
+  for (let i = 0; i < ids.length; i += 100) {
+    const lote = ids.slice(i, i + 100);
+    const r = await api<{ results: DealConHistoria[] }>(
+      "/crm/v3/objects/deals/batch/read",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          properties: [],
+          propertiesWithHistory: ["dealstage"],
+          inputs: lote.map((id) => ({ id })),
+        }),
+      },
     );
 
     for (const d of r.results) {
       const historia = d.propertiesWithHistory?.dealstage ?? [];
       // HubSpot regresa el historial más reciente primero.
       const cronologico = [...historia].reverse();
-      cronologico.forEach((h, i) => {
+      cronologico.forEach((h, idx) => {
         salida.push({
           hubspot_id: d.id,
-          etapa_anterior: i > 0 ? cronologico[i - 1].value : null,
+          etapa_anterior: idx > 0 ? cronologico[idx - 1].value : null,
           etapa_nueva: h.value,
           fecha_cambio: h.timestamp,
           raw: h,
         });
       });
     }
-
-    after = r.paging?.next?.after;
-  } while (after);
+  }
 
   return salida;
 }
