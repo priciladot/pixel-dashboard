@@ -1,12 +1,17 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { requiereRol } from "@/lib/auth";
-import { kpisDelPeriodo, periodos, resumenArea, vendedores, dealsPorRevisar } from "@/lib/queries";
+import {
+  kpisDelPeriodo, periodos, resumenArea, vendedores, dealsPorRevisar,
+  tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday,
+  type TareaAbierta, type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday,
+} from "@/lib/queries";
 import { Card, KpiCard, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { TablaComparativa } from "@/components/TablaComparativa";
 import { MezclaCartera } from "@/components/MezclaCartera";
 import { dias, dinero, dineroCorto, num, pct } from "@/lib/format";
+import { ETAPAS_PIPELINE, nombreEtapa } from "@/lib/pipeline-etapas";
 import type { Ventana } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -26,14 +31,21 @@ export default async function Maestro({
   const ventana: Ventana = sp.ventana === "calendario" ? "calendario" : "kpi_4_semanas";
   const periodo = lista.find((p) => p.id === periodoId)!;
 
-  const [equipo, area, personas, revisar] = await Promise.all([
+  const [equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
     vendedores(),
     dealsPorRevisar(periodoId, sp.vendedor),
+    tareasAbiertas(sp.vendedor),
+    etapaActualDeals(periodoId, sp.vendedor),
+    dealsEstancados(periodoId, sp.vendedor, 7),
+    motivosPerdida(periodoId, sp.vendedor),
+    resumenOperativoMonday(periodoId, sp.vendedor),
   ]);
 
   const filas = sp.vendedor ? equipo.filter((f) => f.vendedor_id === sp.vendedor) : equipo;
+  const tareasAtrasadas = tareas.filter((t) => t.atrasada).length;
+  const mapaVendedores = new Map(personas.map((p) => [p.id, p.nombre_corto]));
   const conObjetivoPorConfirmar = equipo.some((f) => f.objetivo_confirmado === false);
   const ventanaTexto =
     ventana === "kpi_4_semanas"
@@ -55,15 +67,10 @@ export default async function Maestro({
         cumplimiento_pct: seleccionado.cumplimiento_pct,
         deals_ganados: seleccionado.deals_ganados,
         ganado_sin_iva: null as number | null,
-        tareas_abiertas: seleccionado.tareas_abiertas,
+        tareas_abiertas: tareas.length,
         venta_existentes_iva: seleccionado.venta_existentes_iva,
         venta_nuevos_iva: seleccionado.venta_nuevos_iva,
         notas: seleccionado.notas,
-        leads_registrados: seleccionado.leads_registrados,
-        leads_relevantes: seleccionado.leads_relevantes,
-        // v_kpi_vendedor no tiene "leads_con_deal" por persona; deals_creados
-        // es el análogo más cercano disponible para ese paso del embudo.
-        leads_con_deal: seleccionado.deals_creados,
         deals_marketing: null as number | null,
         monto_marketing_sin_iva: null as number | null,
         ciclo_cierre_promedio: seleccionado.ciclo_cierre_dias,
@@ -76,13 +83,10 @@ export default async function Maestro({
         cumplimiento_pct: area?.cumplimiento_pct ?? null,
         deals_ganados: area?.deals_ganados ?? null,
         ganado_sin_iva: area?.ganado_sin_iva ?? null,
-        tareas_abiertas: area?.tareas_abiertas ?? null,
+        tareas_abiertas: tareas.length,
         venta_existentes_iva: area?.venta_existentes_iva ?? null,
         venta_nuevos_iva: area?.venta_nuevos_iva ?? null,
         notas: area?.notas ?? null,
-        leads_registrados: area?.leads_registrados ?? null,
-        leads_relevantes: area?.leads_relevantes ?? null,
-        leads_con_deal: area?.leads_con_deal ?? null,
         deals_marketing: area?.deals_marketing ?? null,
         monto_marketing_sin_iva: area?.monto_marketing_sin_iva ?? null,
         ciclo_cierre_promedio: area?.ciclo_cierre_promedio ?? null,
@@ -102,6 +106,25 @@ export default async function Maestro({
           <Filtros periodos={lista} vendedores={personas.filter((p) => p.rol === "vendedor")} />
         </Suspense>
       </div>
+
+      {/* Focos rojos -------------------------------------------------------
+          Copiloto operativo: solo la parte con reglas claras (>7 días sin
+          movimiento de etapa, tareas vencidas). "Acciones del día" y
+          "alertas de producto inactivo" quedan para una siguiente iteración
+          — necesitan reglas de negocio que todavía no están definidas. */}
+      <Seccion
+        titulo="Focos rojos"
+        descripcion={
+          seleccionado
+            ? `Negocios de ${seleccionado.nombre_corto} sin movimiento 7+ días, y tareas vencidas.`
+            : "Negocios de todo el equipo sin movimiento 7+ días, y tareas vencidas."
+        }
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <NegociosEstancados filas={estancados} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+          <TareasVencidas tareas={tareas.filter((t) => t.atrasada)} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+        </div>
+      </Seccion>
 
       {/* Resumen ejecutivo ------------------------------------------------ */}
       <Seccion
@@ -139,9 +162,9 @@ export default async function Maestro({
           <KpiCard
             etiqueta="Tareas abiertas"
             valor={num(resumen.tareas_abiertas)}
-            apoyo="Sin ejecutar, acumuladas en el equipo"
-            lectura={resumen.tareas_abiertas && resumen.tareas_abiertas > 100 ? "Revisar si es un problema sistémico" : undefined}
-            estado={resumen.tareas_abiertas && resumen.tareas_abiertas > 100 ? "debajo" : undefined}
+            apoyo={`${num(tareasAtrasadas)} atrasadas · HubSpot`}
+            lectura={tareasAtrasadas > 0 ? `${tareasAtrasadas} vencidas sin completar` : undefined}
+            estado={tareasAtrasadas > 0 ? "debajo" : undefined}
           />
         </div>
 
@@ -154,15 +177,9 @@ export default async function Maestro({
           <Card className="px-4 py-4 lg:col-span-2">
             <h3 className="mb-2.5 text-[13px] font-semibold text-ink">
               {seleccionado ? `Embudo de ${seleccionado.nombre_corto}` : "Embudo del periodo"}
+              <span className="ml-1.5 font-normal text-ink-muted">— etapa vigente de cada negocio, HubSpot</span>
             </h3>
-            <Embudo
-              pasos={[
-                { etiqueta: "Leads registrados", valor: resumen.leads_registrados },
-                { etiqueta: "Empresas relevantes", valor: resumen.leads_relevantes },
-                { etiqueta: seleccionado ? "Negocios creados" : "Con negocio asociado", valor: resumen.leads_con_deal },
-                { etiqueta: "Negocios ganados", valor: resumen.deals_ganados },
-              ]}
-            />
+            <EmbudoEtapas filas={etapasActuales} />
             {resumen.deals_marketing != null && (
               <p className="mt-3 border-t border-line pt-2 text-[12px] text-ink-soft">
                 Atribución a Marketing:{" "}
@@ -195,6 +212,33 @@ export default async function Maestro({
             porcentaje de cumplimiento reportado. Captúralos desde el semáforo para que el comparativo sea exacto.
           </p>
         )}
+      </Seccion>
+
+      {/* Origen y canal de venta (Monday) ----------------------------------- */}
+      <Seccion
+        titulo="Origen y canal de venta"
+        descripcion={
+          seleccionado
+            ? `Tipo de negocio y canal de origen de ${seleccionado.nombre_corto}, según el tablero de Monday.`
+            : "Tipo de negocio y canal de origen del equipo, según el tablero de Monday."
+        }
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <TipoNegocioResumen filas={operativoMonday.porTipoNegocio} />
+          <CanalesVenta filas={operativoMonday.porCanal} />
+        </div>
+      </Seccion>
+
+      {/* Motivos de pérdida -------------------------------------------------- */}
+      <Seccion
+        titulo="Motivos de pérdida"
+        descripcion={
+          seleccionado
+            ? `Catálogo real de categoria_perdida para los negocios perdidos de ${seleccionado.nombre_corto}.`
+            : "Catálogo real de categoria_perdida para los negocios perdidos del equipo."
+        }
+      >
+        <MotivosPerdidaLista filas={perdidas} />
       </Seccion>
 
       {/* Calidad de datos ------------------------------------------------- */}
@@ -266,39 +310,211 @@ export default async function Maestro({
   );
 }
 
-/** Embudo horizontal: una sola serie, etiqueta directa en cada paso. */
-function Embudo({ pasos }: { pasos: Array<{ etiqueta: string; valor: number | null }> }) {
-  const base = pasos[0]?.valor ?? 0;
-  if (!base) return <p className="text-[13px] text-ink-soft">Sin datos de embudo para este periodo.</p>;
+/** Embudo real: etapa vigente de cada negocio (v_deal_etapa_actual), no un proxy de leads. */
+function EmbudoEtapas({ filas }: { filas: Array<{ etapa_actual: string }> }) {
+  if (filas.length === 0) {
+    return <p className="text-[13px] text-ink-soft">Sin historial de etapas para este periodo — corre la sincronización de analítica.</p>;
+  }
 
-  // Rampa ordinal de un solo tono: el paso más claro sigue siendo legible.
-  const tonos = ["#2a78d6", "#5598e7", "#86b6ef", "#1c5cab"];
+  const conteos = new Map<string, number>();
+  for (const f of filas) conteos.set(f.etapa_actual, (conteos.get(f.etapa_actual) ?? 0) + 1);
+
+  const base = filas.length;
+  const tonoPorResultado: Record<"abierto" | "ganado" | "perdido", string> = {
+    abierto: "#2a78d6", ganado: "#1f9d55", perdido: "#c0392b",
+  };
 
   return (
-    <ul className="space-y-2">
-      {pasos.map((p, i) => {
-        const ancho = p.valor != null ? Math.max(2, (p.valor / base) * 100) : 0;
+    <ul className="space-y-1.5">
+      {ETAPAS_PIPELINE.map((e) => {
+        const valor = conteos.get(e.id) ?? 0;
+        const ancho = base ? Math.max(valor > 0 ? 2 : 0, (valor / base) * 100) : 0;
         return (
-          <li key={p.etiqueta} className="flex items-center gap-3">
-            <span className="w-[150px] shrink-0 text-[12px] text-ink-soft">{p.etiqueta}</span>
+          <li key={e.id} className="flex items-center gap-3">
+            <span className="w-[150px] shrink-0 truncate text-[12px] text-ink-soft" title={e.label}>{e.label}</span>
             <div className="flex-1">
               <div className="barra-pista">
                 <div
                   className="barra-valor"
-                  style={{ width: `${ancho}%`, backgroundColor: tonos[i % tonos.length] }}
-                  title={`${p.etiqueta}: ${num(p.valor)}`}
+                  style={{ width: `${ancho}%`, backgroundColor: tonoPorResultado[e.resultado] }}
+                  title={`${e.label}: ${valor}`}
                 />
               </div>
             </div>
-            <span className="tabular w-24 shrink-0 text-right text-[12px] font-medium text-ink">
-              {num(p.valor)}
-              {i > 0 && p.valor != null && (
-                <span className="ml-1 font-normal text-ink-muted">{pct((p.valor / base) * 100, 0)}</span>
-              )}
+            <span className="tabular w-20 shrink-0 text-right text-[12px] font-medium text-ink">
+              {valor}
+              <span className="ml-1 font-normal text-ink-muted">{pct(base ? (valor / base) * 100 : null, 0)}</span>
             </span>
           </li>
         );
       })}
     </ul>
+  );
+}
+
+/** Negocios abiertos sin cambio de etapa en 7+ días (dealsEstancados en queries.ts). */
+function NegociosEstancados({
+  filas, mapaVendedores, mostrarVendedor,
+}: { filas: DealEstancado[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">
+        Negocios estancados <span className="font-normal text-ink-muted">({filas.length})</span>
+      </h3>
+      {filas.length === 0 ? (
+        <p className="text-[13px] text-ink-soft">Ningún negocio abierto lleva 7+ días sin moverse de etapa.</p>
+      ) : (
+        <ul className="space-y-2">
+          {filas.slice(0, 8).map((f) => (
+            <li key={f.hubspot_id} className="flex items-center justify-between gap-3 border-b border-line/70 pb-1.5 text-[12px] last:border-0">
+              <div className="min-w-0">
+                <p className="truncate font-medium text-ink" title={f.nombre ?? f.hubspot_id}>{f.nombre ?? `#${f.hubspot_id}`}</p>
+                <p className="text-ink-muted">
+                  {nombreEtapa(f.etapa_actual)}
+                  {mostrarVendedor && f.vendedor_id && ` · ${mapaVendedores.get(f.vendedor_id) ?? "Sin asignar"}`}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="tabular font-medium text-[#8a3b1f]">{f.dias_sin_movimiento}d</p>
+                <p className="tabular text-ink-muted">{dinero(f.monto_con_iva)}</p>
+              </div>
+            </li>
+          ))}
+          {filas.length > 8 && (
+            <li className="text-[11px] text-ink-muted">y {filas.length - 8} más…</li>
+          )}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** Tareas de HubSpot con fecha vencida y sin completar. */
+function TareasVencidas({
+  tareas, mapaVendedores, mostrarVendedor,
+}: { tareas: TareaAbierta[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">
+        Tareas vencidas <span className="font-normal text-ink-muted">({tareas.length})</span>
+      </h3>
+      {tareas.length === 0 ? (
+        <p className="text-[13px] text-ink-soft">Sin tareas vencidas.</p>
+      ) : (
+        <ul className="space-y-2">
+          {tareas.slice(0, 8).map((t) => (
+            <li key={t.hubspot_id} className="flex items-center justify-between gap-3 border-b border-line/70 pb-1.5 text-[12px] last:border-0">
+              <div className="min-w-0">
+                <p className="truncate font-medium text-ink" title={t.asunto ?? t.hubspot_id}>{t.asunto ?? `Tarea #${t.hubspot_id}`}</p>
+                {mostrarVendedor && t.vendedor_id && (
+                  <p className="text-ink-muted">{mapaVendedores.get(t.vendedor_id) ?? "Sin asignar"}</p>
+                )}
+              </div>
+              <span className="shrink-0 tabular text-[#8a3b1f]">{t.fecha ? new Date(t.fecha).toLocaleDateString("es-MX") : "—"}</span>
+            </li>
+          ))}
+          {tareas.length > 8 && (
+            <li className="text-[11px] text-ink-muted">y {tareas.length - 8} más…</li>
+          )}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** Existente vs. nuevo, respaldado por Monday cuando HubSpot no lo trae (ver v_deals_operativo). */
+function TipoNegocioResumen({ filas }: { filas: ResumenOperativoMonday["porTipoNegocio"] }) {
+  const total = filas.reduce((acc, f) => acc + f.deals, 0);
+  const etiquetas: Record<string, string> = { existente: "Existente", nuevo: "Nuevo", por_revisar: "Sin clasificar" };
+
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Tipo de negocio</h3>
+      {total === 0 ? (
+        <p className="text-[13px] text-ink-soft">Sin negocios de Monday cruzados en este periodo.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {[...filas].sort((a, b) => b.deals - a.deals).map((f) => (
+            <li key={f.tipo} className="flex items-center gap-3 text-[12px]">
+              <span className="w-28 shrink-0 text-ink-soft">{etiquetas[f.tipo] ?? f.tipo}</span>
+              <div className="flex-1">
+                <div className="barra-pista">
+                  <div className="barra-valor" style={{ width: `${Math.max(2, (f.deals / total) * 100)}%`, backgroundColor: "#2a78d6" }} />
+                </div>
+              </div>
+              <span className="tabular w-32 shrink-0 text-right font-medium text-ink">
+                {f.deals} · {dinero(f.monto_con_iva)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** Canal de origen real (Monday "¿Cómo llegó?"). */
+function CanalesVenta({ filas }: { filas: ResumenOperativoMonday["porCanal"] }) {
+  const total = filas.reduce((acc, f) => acc + f.deals, 0);
+
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Canal de origen</h3>
+      {total === 0 ? (
+        <p className="text-[13px] text-ink-soft">Sin negocios de Monday cruzados en este periodo.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {filas.slice(0, 8).map((f) => (
+            <li key={f.canal} className="flex items-center gap-3 text-[12px]">
+              <span className="w-28 shrink-0 truncate text-ink-soft" title={f.canal}>{f.canal}</span>
+              <div className="flex-1">
+                <div className="barra-pista">
+                  <div className="barra-valor" style={{ width: `${Math.max(2, (f.deals / total) * 100)}%`, backgroundColor: "#5598e7" }} />
+                </div>
+              </div>
+              <span className="tabular w-32 shrink-0 text-right font-medium text-ink">
+                {f.deals} · {dinero(f.monto_con_iva)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-[11px] text-ink-muted">
+        En vista grupal, un negocio dividido entre dos vendedores cuenta una vez por cada uno.
+      </p>
+    </Card>
+  );
+}
+
+/** Catálogo real de categoria_perdida — no una lista inventada de motivos. */
+function MotivosPerdidaLista({ filas }: { filas: MotivoPerdida[] }) {
+  const total = filas.reduce((acc, f) => acc + f.deals, 0);
+
+  if (total === 0) {
+    return (
+      <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
+        Ningún negocio perdido con motivo capturado en este periodo.
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="px-4 py-4">
+      <ul className="space-y-1.5">
+        {filas.map((f) => (
+          <li key={f.categoria_perdida} className="flex items-center gap-3 text-[12px]">
+            <span className="w-56 shrink-0 truncate text-ink-soft" title={f.categoria_perdida}>{f.categoria_perdida}</span>
+            <div className="flex-1">
+              <div className="barra-pista">
+                <div className="barra-valor" style={{ width: `${Math.max(2, (f.deals / total) * 100)}%`, backgroundColor: "#c0392b" }} />
+              </div>
+            </div>
+            <span className="tabular w-32 shrink-0 text-right font-medium text-ink">
+              {f.deals} · {dinero(f.monto_sin_iva)} sin IVA
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
