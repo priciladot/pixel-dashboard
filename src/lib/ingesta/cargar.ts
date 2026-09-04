@@ -14,6 +14,7 @@ import {
   type DealCrudo, type Diccionarios, type DealSaneado,
 } from "./sanitizar";
 import { resolverVendedor, type CierreCrudo } from "./monday";
+import type { CambioEtapa, EngagementCrudo, LeadCrudo, TipoEngagement } from "./hubspot-analitica";
 
 export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionarios> {
   const [perfiles, alias, mapaOwners, periodos, catalogo] = await Promise.all([
@@ -361,6 +362,161 @@ export async function ingestarCierresMonday(
     }).eq("id", ingestaId);
 
     return { ingestaId, filasOk: filas.length - sinAsignar, sinAsignar };
+  } catch (e) {
+    await db.from("ingestas").update({
+      estatus: "error",
+      terminado_en: new Date().toISOString(),
+      error: e instanceof Error ? e.message : String(e),
+    }).eq("id", ingestaId);
+    throw e;
+  }
+}
+
+/**
+ * Carga historial de etapas, actividades/tareas y leads de HubSpot. Cada
+ * pieza es independiente: si `engagements.sinPermiso` trae tipos (por
+ * scopes faltantes en el Private App) o `leads.disponible` es false (objeto
+ * no habilitado en el portal), esas partes simplemente no escriben nada —
+ * no tumban el resto de la corrida. El resumen final deja explícito qué
+ * faltó, para que quien lo corra sepa qué scope pedir en HubSpot, si acaso.
+ */
+export async function ingestarAnaliticaHubspot(
+  db: SupabaseClient,
+  datos: {
+    etapas: CambioEtapa[];
+    engagements: { porTipo: Partial<Record<TipoEngagement, EngagementCrudo[]>>; sinPermiso: TipoEngagement[] };
+    leads: { leads: LeadCrudo[]; disponible: boolean };
+  },
+  opciones: { periodoId?: string; simulacion?: boolean },
+): Promise<{
+  ingestaId: number;
+  etapas: number;
+  engagementsPorTipo: Record<string, number>;
+  engagementsSinAsignar: number;
+  leads: number;
+  sinPermiso: TipoEngagement[];
+  leadsDisponible: boolean;
+}> {
+  const totalLeido =
+    datos.etapas.length +
+    Object.values(datos.engagements.porTipo).reduce((acc, arr) => acc + (arr?.length ?? 0), 0) +
+    datos.leads.leads.length;
+
+  const { data: ingesta, error: errIngesta } = await db
+    .from("ingestas")
+    .insert({ tipo: "hubspot_analitica", periodo_id: opciones.periodoId ?? null, filas_leidas: totalLeido })
+    .select("id")
+    .single();
+  if (errIngesta) throw new Error(`No se pudo abrir la ingesta: ${errIngesta.message}`);
+  const ingestaId = ingesta.id as number;
+
+  try {
+    const dic = await cargarDiccionarios(db);
+    const engagementsPorTipo: Record<string, number> = {};
+    let engagementsSinAsignar = 0;
+
+    if (!opciones.simulacion) {
+      // 1. Historial de etapas — sin resolución de vendedor, no aplica.
+      if (datos.etapas.length > 0) {
+        const filas = datos.etapas.map((c) => ({
+          hubspot_id: c.hubspot_id,
+          etapa_anterior: c.etapa_anterior,
+          etapa_nueva: c.etapa_nueva,
+          fecha_cambio: c.fecha_cambio,
+          ingesta_id: ingestaId,
+          raw: c.raw,
+        }));
+        for (let i = 0; i < filas.length; i += 500) {
+          const { error } = await db.from("hubspot_deal_stages")
+            .upsert(filas.slice(i, i + 500), { onConflict: "hubspot_id,etapa_nueva,fecha_cambio" });
+          if (error) throw new Error(`Error al escribir historial de etapas: ${error.message}`);
+        }
+      }
+
+      // 2. Actividades y tareas — resueltas por owner_hubspot_id, igual que hubspot_deals.
+      for (const [tipo, lista] of Object.entries(datos.engagements.porTipo)) {
+        if (!lista || lista.length === 0) continue;
+        const filas = lista.map((e) => {
+          const vendedorId = e.owner_hubspot_id ? dic.porOwnerId.get(e.owner_hubspot_id) ?? null : null;
+          if (!vendedorId) engagementsSinAsignar += 1;
+          return {
+            hubspot_id: e.hubspot_id,
+            tipo: e.tipo,
+            deal_id_ref: e.deal_id_ref,
+            vendedor_id: vendedorId,
+            owner_hubspot_id: e.owner_hubspot_id,
+            asunto: e.asunto,
+            estado: e.estado,
+            fecha: e.fecha,
+            duracion_segundos: e.duracion_segundos,
+            ingesta_id: ingestaId,
+            raw: e.raw,
+            actualizado_en: new Date().toISOString(),
+          };
+        });
+        engagementsPorTipo[tipo] = filas.length;
+        for (let i = 0; i < filas.length; i += 500) {
+          const { error } = await db.from("hubspot_engagements")
+            .upsert(filas.slice(i, i + 500), { onConflict: "tipo,hubspot_id" });
+          if (error) throw new Error(`Error al escribir ${tipo}: ${error.message}`);
+        }
+      }
+
+      // 3. Leads — mismo patrón de resolución.
+      if (datos.leads.leads.length > 0) {
+        const filas = datos.leads.leads.map((l) => ({
+          hubspot_id: l.hubspot_id,
+          deal_id_ref: l.deal_id_ref,
+          vendedor_id: l.owner_hubspot_id ? dic.porOwnerId.get(l.owner_hubspot_id) ?? null : null,
+          etapa: l.etapa,
+          fecha_creacion: l.fecha_creacion,
+          ingesta_id: ingestaId,
+          raw: l.raw,
+          actualizado_en: new Date().toISOString(),
+        }));
+        for (let i = 0; i < filas.length; i += 500) {
+          const { error } = await db.from("hubspot_leads")
+            .upsert(filas.slice(i, i + 500), { onConflict: "hubspot_id" });
+          if (error) throw new Error(`Error al escribir leads: ${error.message}`);
+        }
+      }
+    } else {
+      // En simulación se cuenta lo que se habría escrito, sin tocar la base.
+      for (const [tipo, lista] of Object.entries(datos.engagements.porTipo)) {
+        engagementsPorTipo[tipo] = lista?.length ?? 0;
+        engagementsSinAsignar += (lista ?? []).filter(
+          (e) => !e.owner_hubspot_id || !dic.porOwnerId.get(e.owner_hubspot_id),
+        ).length;
+      }
+    }
+
+    const resumen = {
+      simulacion: Boolean(opciones.simulacion),
+      etapas: datos.etapas.length,
+      engagements_por_tipo: engagementsPorTipo,
+      engagements_sin_asignar: engagementsSinAsignar,
+      leads: datos.leads.leads.length,
+      leads_disponible: datos.leads.disponible,
+      sin_permiso: datos.engagements.sinPermiso,
+    };
+
+    await db.from("ingestas").update({
+      estatus: datos.engagements.sinPermiso.length > 0 || !datos.leads.disponible ? "completada_con_avisos" : "completada",
+      terminado_en: new Date().toISOString(),
+      filas_ok: totalLeido - engagementsSinAsignar,
+      filas_sanitizadas: engagementsSinAsignar,
+      resumen,
+    }).eq("id", ingestaId);
+
+    return {
+      ingestaId,
+      etapas: datos.etapas.length,
+      engagementsPorTipo,
+      engagementsSinAsignar,
+      leads: datos.leads.leads.length,
+      sinPermiso: datos.engagements.sinPermiso,
+      leadsDisponible: datos.leads.disponible,
+    };
   } catch (e) {
     await db.from("ingestas").update({
       estatus: "error",
