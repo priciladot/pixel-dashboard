@@ -5,12 +5,14 @@ import {
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
+  proyeccionPipeline,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
   type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
   type PasoEmbudo, type VelocidadNegocio, type GanadosPerdidos, type AccionCoach,
   type DisciplinaComercial as TDisciplinaComercial, type EstatusReto, type RetoSemana,
+  type ProyeccionPipeline, type GrupoPipelineProyectado,
 } from "@/lib/queries";
 import { Card, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
@@ -64,7 +66,7 @@ export async function TorreDeControl({
     equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday,
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
     actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
-    coachAcciones, disciplina, estancados10,
+    coachAcciones, disciplina, proyeccionPipelineData, estancados10,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
@@ -89,6 +91,7 @@ export async function TorreDeControl({
     ganadosPerdidos(periodoId, vistaTiempo, vendedorId),
     vendedorId ? diagnosticoCoach(periodoId, vendedorId) : Promise.resolve([] as AccionCoach[]),
     vendedorId ? disciplinaComercial(periodoId, vendedorId) : Promise.resolve(null as TDisciplinaComercial | null),
+    vendedorId ? proyeccionPipeline(periodoId, vendedorId) : Promise.resolve(null as ProyeccionPipeline | null),
     dealsEstancados(periodoId, vendedorId, 10),
   ]);
 
@@ -308,6 +311,15 @@ export async function TorreDeControl({
               {seleccionado.actividades_totales != null && <>{num(seleccionado.actividades_totales)} actividades registradas</>}
             </p>
           )}
+        </Seccion>
+      )}
+
+      {seleccionado && proyeccionPipelineData && (
+        <Seccion
+          titulo="🔮 Proyección de Cierres y Pipeline Ponderado"
+          descripcion={`Negocios abiertos de ${seleccionado.nombre_corto}, agrupados por fecha de cierre estimada en HubSpot.`}
+        >
+          <ProyeccionPipelineTarjeta proyeccion={proyeccionPipelineData} />
         </Seccion>
       )}
 
@@ -1410,5 +1422,95 @@ function DisciplinaComercial({
         </div>
       </Card>
     </>
+  );
+}
+
+const COLOR_GRUPO_PIPELINE: Record<GrupoPipelineProyectado["clave"], { acento: string; bg: string; borde: string }> = {
+  mes_activo:  { acento: "#2a78d6", bg: "#2a78d614", borde: "#2a78d640" },
+  proximo_mes: { acento: "#1f9d55", bg: "#1f9d5514", borde: "#1f9d5540" },
+  por_definir: { acento: "#a04a25", bg: "#fdeee7", borde: "#f4cbb6" },
+};
+
+/**
+ * Sin JS de tabs (todo el árbol es server component) -- se muestran las 3
+ * tarjetas lado a lado en vez de pestañas interactivas. "Por definir /
+ * futuros" siempre se ve, aunque venga vacío, para que la ausencia misma
+ * sea la señal de "todo tiene fecha capturada".
+ */
+function ProyeccionPipelineTarjeta({ proyeccion }: { proyeccion: ProyeccionPipeline }) {
+  if (proyeccion.grupos.length === 0) {
+    return (
+      <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
+        Sin negocios abiertos en el pipeline este periodo.
+      </Card>
+    );
+  }
+  return (
+    <div>
+      <div className="grid gap-3 lg:grid-cols-3">
+        {proyeccion.grupos.map((g) => {
+          const color = COLOR_GRUPO_PIPELINE[g.clave];
+          return (
+            <div key={g.clave} className="rounded-card border px-4 py-4" style={{ backgroundColor: color.bg, borderColor: color.borde }}>
+              <h3 className="text-[13px] font-semibold" style={{ color: color.acento }}>{g.etiqueta}</h3>
+              <p className="mt-1 text-[11px] text-ink-muted">{num(g.deals.length)} negocio{g.deals.length === 1 ? "" : "s"}</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-ink-muted">Monto abierto</p>
+                  <p className="text-[16px] font-semibold text-ink">{dinero(g.montoAbierto)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-ink-muted">Ponderado</p>
+                  <p className="text-[16px] font-semibold text-ink">{dinero(g.montoPonderado)}</p>
+                </div>
+              </div>
+
+              {g.clave === "por_definir" && g.deals.length > 0 && (
+                <p className="mt-2 text-[11px] font-medium" style={{ color: color.acento }}>
+                  ⚠️ Actualiza la fecha de cierre de estos negocios en HubSpot.
+                </p>
+              )}
+
+              {g.deals.length === 0 ? (
+                <p className="mt-3 text-[12px] text-ink-soft">Sin negocios en este grupo.</p>
+              ) : (
+                <ul className="mt-3 space-y-2 border-t border-line/70 pt-2.5">
+                  {g.deals.slice(0, 5).map((d) => (
+                    <li key={d.hubspot_id} className="text-[12px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-medium text-ink" title={d.nombre ?? d.hubspot_id}>{d.nombre ?? `#${d.hubspot_id}`}</span>
+                        <span className="shrink-0 tabular font-medium text-ink">{dinero(d.monto_con_iva)}</span>
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-ink-muted">
+                        <span className="truncate">{d.empresa ?? "—"} · {d.etapa_label}</span>
+                        <span className="shrink-0 tabular">{d.fecha_cierre ? new Date(d.fecha_cierre).toLocaleDateString("es-MX") : "sin fecha"}</span>
+                      </div>
+                      <span
+                        className="mt-1 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
+                        style={
+                          d.probabilidad_pct == null
+                            ? { color: "#52514e", backgroundColor: "#f2f1ed", borderColor: "#e1e0d9" }
+                            : { color: color.acento, backgroundColor: "white", borderColor: color.borde }
+                        }
+                      >
+                        {d.probabilidad_pct == null ? "Probabilidad: sin dato histórico" : `Probabilidad histórica: ${pct(d.probabilidad_pct, 0)}`}
+                      </span>
+                    </li>
+                  ))}
+                  {g.deals.length > 5 && (
+                    <li className="text-[11px] text-ink-muted">y {g.deals.length - 5} más…</li>
+                  )}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {!proyeccion.probabilidadDisponible && (
+        <p className="mt-3 text-[11px] text-ink-muted">
+          Aún no hay suficientes cierres históricos del equipo para calcular una probabilidad por etapa -- HubSpot tampoco trae un score propio en este portal (nunca se sincronizó hs_deal_stage_probability). El "monto ponderado" queda en $0 hasta que haya datos suficientes.
+        </p>
+      )}
+    </div>
   );
 }

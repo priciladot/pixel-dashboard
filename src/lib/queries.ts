@@ -1401,3 +1401,167 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
 
   return { semanas: semanasFinal, rachaSemanas, alerta, estancadosSemanaActual };
 }
+
+/* ------------------------------------------------------------------ */
+/* Proyección de pipeline -- forecast por fecha de cierre estimada      */
+/* ------------------------------------------------------------------ */
+
+export interface DealPipelineProyectado {
+  hubspot_id: string;
+  nombre: string | null;
+  empresa: string | null;
+  monto_con_iva: number | null;
+  etapa_actual: string;
+  etapa_label: string;
+  fecha_cierre: string | null;
+  probabilidad_pct: number | null;
+}
+
+export type ClaveGrupoPipeline = "mes_activo" | "proximo_mes" | "por_definir";
+
+export interface GrupoPipelineProyectado {
+  clave: ClaveGrupoPipeline;
+  etiqueta: string;
+  montoAbierto: number;
+  montoPonderado: number;
+  deals: DealPipelineProyectado[];
+}
+
+export interface ProyeccionPipeline {
+  probabilidadDisponible: boolean;
+  grupos: GrupoPipelineProyectado[];
+}
+
+/**
+ * % de negocios que, habiendo tocado esta etapa alguna vez, terminó
+ * ganado -- calculado de TODOS los cierres históricos del equipo (no del
+ * vendedor filtrado: el volumen de cierres de una sola persona por etapa
+ * es demasiado chico para ser confiable, el mismo criterio con el que se
+ * descartó el "motor de patrones de éxito" antes en este proyecto).
+ *
+ * HubSpot no trae un score de probabilidad propio en este portal
+ * (hs_deal_stage_probability nunca se pidió a la API, no está en
+ * PROPIEDADES_BASE de la ingesta) -- esto es la aproximación real más
+ * cercana que hay con los datos que sí existen. Etapas con menos de 5
+ * cierres históricos se quedan sin probabilidad (null) en vez de mostrar
+ * un % basado en una muestra que no significa nada.
+ */
+async function probabilidadPorEtapa(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<Map<string, number>> {
+  const { data: cerrados } = await supabase.from("hubspot_deals")
+    .select("hubspot_id, cerrado_ganado").not("cerrado_ganado", "is", null).limit(3000);
+  const filas = (cerrados as Array<{ hubspot_id: string; cerrado_ganado: boolean }>) ?? [];
+  if (filas.length === 0) return new Map();
+  const resultadoPorDeal = new Map(filas.map((f) => [f.hubspot_id, f.cerrado_ganado]));
+
+  const etapas = await porLotes(filas.map((f) => f.hubspot_id), 200, async (lote) => {
+    const { data } = await supabase.from("hubspot_deal_stages").select("hubspot_id, etapa_nueva").in("hubspot_id", lote).limit(10_000);
+    return (data as Array<{ hubspot_id: string; etapa_nueva: string }>) ?? [];
+  });
+
+  const vistoPorEtapa = new Map<string, Set<string>>();
+  for (const e of etapas) {
+    const set = vistoPorEtapa.get(e.etapa_nueva) ?? new Set<string>();
+    set.add(e.hubspot_id);
+    vistoPorEtapa.set(e.etapa_nueva, set);
+  }
+
+  const probabilidad = new Map<string, number>();
+  for (const [etapa, idsDeal] of vistoPorEtapa.entries()) {
+    if (idsDeal.size < 5) continue;
+    let ganados = 0;
+    for (const id of idsDeal) if (resultadoPorDeal.get(id)) ganados += 1;
+    probabilidad.set(etapa, (ganados / idsDeal.size) * 100);
+  }
+  return probabilidad;
+}
+
+/**
+ * Negocios ABIERTOS del vendedor, agrupados por su fecha de cierre
+ * estimada: mes activo (el del periodo seleccionado), próximo mes, o
+ * "por definir" (sin fecha, o fuera de esos dos meses -- incluye
+ * estimados vencidos que quedaron sin actualizar). La etapa viene de
+ * v_deal_etapa_actual (la vigente, no hubspot_deals.etapa que puede
+ * quedar desactualizada). "Empresa" casi siempre sale vacía para
+ * negocios abiertos -- Monday solo registra tratos GANADOS, por diseño.
+ */
+export async function proyeccionPipeline(periodoId: string, vendedorId: string): Promise<ProyeccionPipeline> {
+  const supabase = await createClient();
+
+  const { data: periodoRow } = await supabase.from("periodos").select("anio, mes").eq("id", periodoId).maybeSingle();
+  const hoy = new Date();
+  const anio = periodoRow?.anio ?? hoy.getFullYear();
+  const mesActivo = periodoRow?.mes ?? hoy.getMonth() + 1;
+  const [anioProx, mesProx] = mesActivo === 12 ? [anio + 1, 1] : [anio, mesActivo + 1];
+
+  const rangoDe = (a: number, m: number) => {
+    const ultimoDia = new Date(a, m, 0).getDate();
+    return {
+      inicio: `${a}-${String(m).padStart(2, "0")}-01T00:00:00`,
+      fin: `${a}-${String(m).padStart(2, "0")}-${String(ultimoDia).padStart(2, "0")}T23:59:59`,
+    };
+  };
+  const rangoActivo = rangoDe(anio, mesActivo);
+  const rangoProximo = rangoDe(anioProx, mesProx);
+
+  const [{ data: etapaActual }, probabilidad] = await Promise.all([
+    supabase.from("v_deal_etapa_actual").select("hubspot_id, etapa_actual, nombre, monto_con_iva").eq("vendedor_id", vendedorId),
+    probabilidadPorEtapa(supabase),
+  ]);
+
+  const abiertos = ((etapaActual as Array<{
+    hubspot_id: string; etapa_actual: string; nombre: string | null; monto_con_iva: number | null;
+  }>) ?? []).filter((d) => etapaInfo(d.etapa_actual)?.resultado === "abierto");
+
+  if (abiertos.length === 0) {
+    return { probabilidadDisponible: probabilidad.size > 0, grupos: [] };
+  }
+
+  const [{ data: fechas }, { data: mondayRows }] = await Promise.all([
+    supabase.from("hubspot_deals").select("hubspot_id, fecha_cierre").in("hubspot_id", abiertos.map((d) => d.hubspot_id)),
+    supabase.from("monday_cierres").select("hubspot_id, empresa").in("hubspot_id", abiertos.map((d) => d.hubspot_id)),
+  ]);
+  const mapaFecha = new Map(((fechas as Array<{ hubspot_id: string; fecha_cierre: string | null }>) ?? []).map((f) => [f.hubspot_id, f.fecha_cierre]));
+  const mapaEmpresa = new Map(((mondayRows as Array<{ hubspot_id: string; empresa: string | null }>) ?? []).map((m) => [m.hubspot_id, m.empresa]));
+
+  const clasificar = (fecha: string | null): ClaveGrupoPipeline => {
+    if (!fecha) return "por_definir";
+    if (fecha >= rangoActivo.inicio && fecha <= rangoActivo.fin) return "mes_activo";
+    if (fecha >= rangoProximo.inicio && fecha <= rangoProximo.fin) return "proximo_mes";
+    return "por_definir";
+  };
+
+  const gruposMapa = new Map<ClaveGrupoPipeline, DealPipelineProyectado[]>();
+  for (const d of abiertos) {
+    const fechaCierre = mapaFecha.get(d.hubspot_id) ?? null;
+    const clave = clasificar(fechaCierre);
+    const lista = gruposMapa.get(clave) ?? [];
+    lista.push({
+      hubspot_id: d.hubspot_id,
+      nombre: d.nombre,
+      empresa: mapaEmpresa.get(d.hubspot_id) ?? null,
+      monto_con_iva: d.monto_con_iva,
+      etapa_actual: d.etapa_actual,
+      etapa_label: nombreEtapa(d.etapa_actual),
+      fecha_cierre: fechaCierre,
+      probabilidad_pct: probabilidad.get(d.etapa_actual) ?? null,
+    });
+    gruposMapa.set(clave, lista);
+  }
+
+  const ETIQUETAS: Record<ClaveGrupoPipeline, string> = {
+    mes_activo: "Cierres del mes activo",
+    proximo_mes: "Próximo mes",
+    por_definir: "Por definir / futuros",
+  };
+
+  const grupos = (["mes_activo", "proximo_mes", "por_definir"] as const).map((clave) => {
+    const deals = (gruposMapa.get(clave) ?? []).sort((a, b) => (b.monto_con_iva ?? 0) - (a.monto_con_iva ?? 0));
+    const montoAbierto = deals.reduce((acc, d) => acc + (d.monto_con_iva ?? 0), 0);
+    const montoPonderado = deals.reduce((acc, d) => acc + (d.monto_con_iva ?? 0) * ((d.probabilidad_pct ?? 0) / 100), 0);
+    return { clave, etiqueta: ETIQUETAS[clave], montoAbierto, montoPonderado, deals };
+  });
+
+  return { probabilidadDisponible: probabilidad.size > 0, grupos };
+}
