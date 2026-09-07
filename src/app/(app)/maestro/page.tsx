@@ -24,6 +24,22 @@ import type { Ventana } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const MESES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+
+/** "2026-09-01", "2026-09-30" -> "1 al 30 de septiembre de 2026". */
+function formatearRangoFechas(inicioIso: string, finIso: string): string {
+  const inicio = new Date(`${inicioIso}T00:00:00`);
+  const fin = new Date(`${finIso}T00:00:00`);
+  const mismoMes = inicio.getMonth() === fin.getMonth() && inicio.getFullYear() === fin.getFullYear();
+  if (mismoMes) {
+    return `${inicio.getDate()} al ${fin.getDate()} de ${MESES[fin.getMonth()]} de ${fin.getFullYear()}`;
+  }
+  return `${inicio.getDate()} de ${MESES[inicio.getMonth()]} al ${fin.getDate()} de ${MESES[fin.getMonth()]} de ${fin.getFullYear()}`;
+}
+
 export default async function Maestro({
   searchParams,
 }: { searchParams: Promise<{ periodo?: string; vendedor?: string; ventana?: string; vista?: string }> }) {
@@ -76,10 +92,10 @@ export default async function Maestro({
   const tareasAtrasadas = tareas.filter((t) => t.atrasada).length;
   const mapaVendedores = new Map(personas.map((p) => [p.id, p.nombre_corto]));
   const conObjetivoPorConfirmar = equipo.some((f) => f.objetivo_confirmado === false);
-  const ventanaTexto =
-    ventana === "kpi_4_semanas"
-      ? `S1–S4: ${periodo.kpi_inicio} al ${periodo.kpi_fin}`
-      : `Calendario: ${periodo.cal_inicio} al ${periodo.cal_fin}`;
+  const [rangoInicio, rangoFin] = ventana === "kpi_4_semanas"
+    ? [periodo.kpi_inicio, periodo.kpi_fin]
+    : [periodo.cal_inicio, periodo.cal_fin];
+  const ventanaTexto = `Evaluando ventas cerradas del ${formatearRangoFechas(rangoInicio, rangoFin)}`;
 
   // Con un vendedor filtrado, el resumen ejecutivo muestra SUS cifras (de
   // v_kpi_vendedor, la misma fuente que la tabla comparativa) en vez de la
@@ -131,7 +147,7 @@ export default async function Maestro({
             {seleccionado ? `Hola, ${seleccionado.nombre_corto} 👋` : "Dashboard maestro"}
           </h1>
           <p className="mt-0.5 text-[13px] text-ink-soft">
-            {periodo.etiqueta} · <span className="tabular">{ventanaTexto}</span>
+            {periodo.etiqueta} · {ventanaTexto}
             {periodo.cerrado && <span className="ml-2 text-ink-muted">Periodo cerrado</span>}
           </p>
         </div>
@@ -237,7 +253,7 @@ export default async function Maestro({
       {/* Comparativo ------------------------------------------------------ */}
       <Seccion
         titulo="Comparativa de desempeño y cumplimiento"
-        descripcion={`${filas.length} de ${equipo.length} registros del periodo.`}
+        descripcion={`${filas.length} de ${equipo.length} registros del periodo. Venta: cifra oficial del Semáforo Comercial (captura manual), no un cálculo automático de HubSpot.`}
         acciones={
           sp.vendedor ? (
             <Link href={`/maestro?periodo=${periodoId}&ventana=${ventana}`} className="text-[12px] text-ink-soft underline">
@@ -1325,6 +1341,7 @@ function DisciplinaComercial({ disciplina }: { disciplina: TDisciplinaComercial 
                     <span className={`ml-1.5 text-[10px] font-medium ${s.esSemanaActual ? "text-serie-1" : "text-ink-muted"}`}>
                       ({etiquetaTemporalDe(s)})
                     </span>
+                    <span className="block text-[11px] font-normal text-ink-muted">{formatearRangoFechas(s.inicio, s.fin)}</span>
                   </td>
                   <td className="px-4 py-2.5 tabular text-ink-soft">
                     {dinero(s.montoVendido)}
