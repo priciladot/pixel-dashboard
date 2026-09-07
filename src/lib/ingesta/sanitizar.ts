@@ -43,6 +43,10 @@ export interface DealCrudo {
   clasificacion_raw?: string | null;
   pipeline?: string | null;
   es_division?: boolean | null;
+  /** Ids de los contactos asociados al negocio en HubSpot — sirve para ligar actividad de contacto al negocio. */
+  contacto_ids?: string[] | null;
+  /** Id de la empresa asociada al negocio en HubSpot (la primaria, si hay varias). */
+  empresa_id?: string | null;
   raw?: unknown;
 }
 
@@ -67,6 +71,8 @@ export interface DealSaneado {
   clasificacion_raw: string | null;
   pipeline: string | null;
   es_division: boolean;
+  contacto_ids: string[];
+  empresa_id: string | null;
   flags: Flag[];
   calidad: "ok" | "parcial" | "por_revisar";
   raw: unknown;
@@ -266,6 +272,8 @@ export function sanearLote(
       clasificacion_raw: c.clasificacion_raw ?? null,
       pipeline: c.pipeline ?? null,
       es_division,
+      contacto_ids: (c.contacto_ids ?? []).map(String),
+      empresa_id: c.empresa_id != null ? String(c.empresa_id) : null,
       flags,
       calidad: critico ? "por_revisar" : flags.length > 0 ? "parcial" : "ok",
       raw: c.raw ?? c,

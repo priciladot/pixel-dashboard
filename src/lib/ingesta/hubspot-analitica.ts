@@ -206,6 +206,10 @@ export interface EngagementCrudo {
   hubspot_id: string;
   tipo: TipoEngagement;
   deal_id_ref: string | null;
+  /** Contacto asociado directamente a la actividad en HubSpot (no al negocio) — liga actividad de contacto al negocio vía v_deal_actividad. */
+  contact_id_ref: string | null;
+  /** Empresa asociada directamente a la actividad en HubSpot. */
+  company_id_ref: string | null;
   owner_hubspot_id: string | null;
   asunto: string | null;
   estado: string | null;
@@ -217,7 +221,11 @@ export interface EngagementCrudo {
 interface EngagementApi {
   id: string;
   properties: Record<string, string | null>;
-  associations?: { deals?: { results: Array<{ id: string }> } };
+  associations?: {
+    deals?: { results: Array<{ id: string }> };
+    contacts?: { results: Array<{ id: string }> };
+    companies?: { results: Array<{ id: string }> };
+  };
 }
 
 function aEngagementCrudo(tipo: TipoEngagement, e: EngagementApi): EngagementCrudo {
@@ -228,6 +236,8 @@ function aEngagementCrudo(tipo: TipoEngagement, e: EngagementApi): EngagementCru
     hubspot_id: e.id,
     tipo,
     deal_id_ref: e.associations?.deals?.results?.[0]?.id ?? null,
+    contact_id_ref: e.associations?.contacts?.results?.[0]?.id ?? null,
+    company_id_ref: e.associations?.companies?.results?.[0]?.id ?? null,
     owner_hubspot_id: p.hubspot_owner_id ?? null,
     asunto,
     estado: p.hs_task_status ?? null,
@@ -259,7 +269,7 @@ export async function buscarEngagements(
         ],
       }],
       properties: propiedades,
-      associations: ["deals"],
+      associations: ["deals", "contacts", "companies"],
       limit: 100,
       ...(after ? { after } : {}),
     };

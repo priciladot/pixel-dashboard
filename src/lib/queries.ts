@@ -163,10 +163,14 @@ export interface DealPorRevisar {
   es_division: boolean;
 }
 
-export async function dealsPorRevisar(periodoId?: string, vendedorId?: string): Promise<DealPorRevisar[]> {
+/**
+ * Acumulativo a propósito -- NO se filtra por periodo_id: un negocio con
+ * datos incompletos capturado en un mes anterior sigue pendiente de
+ * corregir hoy, sin importar en qué mes se creó.
+ */
+export async function dealsPorRevisar(vendedorId?: string): Promise<DealPorRevisar[]> {
   const supabase = await createClient();
   let q = supabase.from("v_deals_por_revisar").select("*").limit(500);
-  if (periodoId) q = q.eq("periodo_id", periodoId);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q;
   return (data as DealPorRevisar[]) ?? [];
@@ -262,10 +266,14 @@ export interface DealEstancado {
  * `diasUmbral` días o más. Antes filtraba por hubspot_deals.cerrado_ganado,
  * que puede quedar desactualizado si el negocio se reactivó después del
  * último sync de deals; por eso siempre daba 0 resultados.
+ *
+ * Acumulativo a propósito -- NO se filtra por periodo_id: un negocio abierto
+ * que viene arrastrándose desde un mes anterior sigue siendo un foco rojo
+ * hoy, sin importar en qué mes se creó.
  */
-export async function dealsEstancados(periodoId: string, vendedorId?: string, diasUmbral = 7): Promise<DealEstancado[]> {
+export async function dealsEstancados(vendedorId?: string, diasUmbral = 7): Promise<DealEstancado[]> {
   const supabase = await createClient();
-  let q = supabase.from("v_deal_actividad").select("*").eq("periodo_id", periodoId);
+  let q = supabase.from("v_deal_actividad").select("*");
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.limit(2000);
 
@@ -312,7 +320,7 @@ export interface AccionPrioritaria {
  *     30+ días (umbral más estricto que el de "Focos rojos", pensado para
  *     esta lista corta de prioridades).
  */
-export async function accionesPrioritarias(periodoId: string, vendedorId?: string, limite = 10): Promise<AccionPrioritaria[]> {
+export async function accionesPrioritarias(vendedorId?: string, limite = 10): Promise<AccionPrioritaria[]> {
   const supabase = await createClient();
 
   let qTareas = supabase
@@ -325,7 +333,7 @@ export async function accionesPrioritarias(periodoId: string, vendedorId?: strin
 
   const [{ data: tareasData }, estancados] = await Promise.all([
     qTareas.limit(1000),
-    dealsEstancados(periodoId, vendedorId, 30),
+    dealsEstancados(vendedorId, 30),
   ]);
 
   const hoy = new Date().toISOString();
@@ -631,12 +639,17 @@ async function mondaySinCanal(
   });
 }
 
-/** Negocios abiertos en etapa activa sin NINGUNA nota/llamada/tarea/reunión real en `diasUmbral` días -- un cambio de etapa no cuenta como atención. */
+/**
+ * Negocios abiertos en etapa activa sin NINGUNA nota/llamada/tarea/reunión
+ * real en `diasUmbral` días -- un cambio de etapa no cuenta como atención.
+ * Acumulativo a propósito -- NO se filtra por periodo_id: un negocio
+ * abandonado desde un mes anterior sigue siendo urgente hoy.
+ */
 async function sinAtencion(
-  supabase: Awaited<ReturnType<typeof createClient>>, periodoId: string, vendedorId: string | undefined,
+  supabase: Awaited<ReturnType<typeof createClient>>, vendedorId: string | undefined,
   mapaVendedores: Map<string, string>, diasUmbral: number,
 ): Promise<AlertaAuditoria[]> {
-  let q = supabase.from("v_deal_actividad").select("*").eq("periodo_id", periodoId);
+  let q = supabase.from("v_deal_actividad").select("*");
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.limit(2000);
 
@@ -684,7 +697,7 @@ export async function alertasHigiene(periodoId: string, vendedorId?: string, dia
   const [ganados, sinCanal, abandonados] = await Promise.all([
     ganadosSinMonday(supabase, periodoId, vendedorId, mapaVendedores),
     mondaySinCanal(supabase, periodoId, vendedorId, mapaVendedores),
-    sinAtencion(supabase, periodoId, vendedorId, mapaVendedores, diasSinAtencion),
+    sinAtencion(supabase, vendedorId, mapaVendedores, diasSinAtencion),
   ]);
 
   return [...ganados, ...sinCanal, ...abandonados]
@@ -1393,7 +1406,7 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
   }
 
   const estancadosSemanaActual = semanaActual
-    ? (await dealsEstancados(periodoId, vendedorId, 5)).length
+    ? (await dealsEstancados(vendedorId, 5)).length
     : null;
   if (estancadosSemanaActual && estancadosSemanaActual > 0 && !alerta) {
     alerta = `Alerta de Disciplina: ${estancadosSemanaActual} negocio(s) con 5+ días sin atención.`;
@@ -1525,9 +1538,12 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
   const mapaFecha = new Map(((fechas as Array<{ hubspot_id: string; fecha_cierre: string | null }>) ?? []).map((f) => [f.hubspot_id, f.fecha_cierre]));
   const mapaEmpresa = new Map(((mondayRows as Array<{ hubspot_id: string; empresa: string | null }>) ?? []).map((m) => [m.hubspot_id, m.empresa]));
 
+  // Un negocio abierto con fecha de cierre ANTERIOR al mes activo está
+  // atrasado, no "por definir" -- sigue siendo trabajo pendiente de este
+  // mes, así que cae en el mismo cajón que los cierres del mes activo.
   const clasificar = (fecha: string | null): ClaveGrupoPipeline => {
     if (!fecha) return "por_definir";
-    if (fecha >= rangoActivo.inicio && fecha <= rangoActivo.fin) return "mes_activo";
+    if (fecha <= rangoActivo.fin) return "mes_activo";
     if (fecha >= rangoProximo.inicio && fecha <= rangoProximo.fin) return "proximo_mes";
     return "por_definir";
   };
@@ -1551,7 +1567,7 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
   }
 
   const ETIQUETAS: Record<ClaveGrupoPipeline, string> = {
-    mes_activo: "Cierres del mes activo",
+    mes_activo: "Cierres del mes / atrasados",
     proximo_mes: "Próximo mes",
     por_definir: "Por definir / futuros",
   };

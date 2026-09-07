@@ -94,6 +94,10 @@ export async function listarOwners(): Promise<Owner[]> {
 interface DealApi {
   id: string;
   properties: Record<string, string | null>;
+  associations?: {
+    contacts?: { results: Array<{ id: string }> };
+    companies?: { results: Array<{ id: string }> };
+  };
 }
 
 /**
@@ -120,6 +124,7 @@ export async function buscarDeals(desde: string, hasta: string): Promise<DealCru
         ],
       }],
       properties: propiedades,
+      associations: ["contacts", "companies"],
       limit: 100,
       ...(after ? { after } : {}),
     };
@@ -151,6 +156,7 @@ export async function buscarDealsCreados(desde: string, hasta: string): Promise<
         ],
       }],
       properties: propiedades,
+      associations: ["contacts", "companies"],
       limit: 100,
       ...(after ? { after } : {}),
     };
@@ -188,6 +194,8 @@ function aDealCrudo(d: DealApi): DealCrudo {
     // El portal no marca las divisiones con una propiedad: se detectan por
     // firma (mismo nombre de negocio + mismo monto) en la capa de saneo.
     es_division: false,
+    contacto_ids: (d.associations?.contacts?.results ?? []).map((r) => r.id),
+    empresa_id: d.associations?.companies?.results?.[0]?.id ?? null,
     raw: d,
   };
 }

@@ -71,13 +71,13 @@ export async function TorreDeControl({
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
     vendedores(),
-    dealsPorRevisar(periodoId, vendedorId),
+    dealsPorRevisar(vendedorId),
     tareasAbiertas(vendedorId),
     etapaActualDeals(periodoId, vendedorId),
-    dealsEstancados(periodoId, vendedorId, 7),
+    dealsEstancados(vendedorId, 7),
     motivosPerdida(periodoId, vendedorId),
     resumenOperativoMonday(periodoId, vendedorId),
-    accionesPrioritarias(periodoId, vendedorId, 10),
+    accionesPrioritarias(vendedorId, 10),
     ventasConProducto(periodoId, vendedorId),
     alertasHigiene(periodoId, vendedorId, 5),
     productosSemanaPasada(vendedorId),
@@ -92,7 +92,7 @@ export async function TorreDeControl({
     vendedorId ? diagnosticoCoach(periodoId, vendedorId) : Promise.resolve([] as AccionCoach[]),
     vendedorId ? disciplinaComercial(periodoId, vendedorId) : Promise.resolve(null as TDisciplinaComercial | null),
     vendedorId ? proyeccionPipeline(periodoId, vendedorId) : Promise.resolve(null as ProyeccionPipeline | null),
-    dealsEstancados(periodoId, vendedorId, 10),
+    dealsEstancados(vendedorId, 10),
   ]);
 
   const filas = vendedorId ? equipo.filter((f) => f.vendedor_id === vendedorId) : equipo;
@@ -373,7 +373,7 @@ export async function TorreDeControl({
       >
         {revisar.length === 0 ? (
           <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
-            Ningún registro marcado en este periodo.
+            Ningún registro marcado.
           </Card>
         ) : (
           <Card className="overflow-hidden">
@@ -862,7 +862,7 @@ function AlertasHigiene({ alertas }: { alertas: AlertaAuditoria[] }) {
   if (alertas.length === 0) {
     return (
       <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
-        Sin inconsistencias de captura ni clientes sin atención en este periodo.
+        Sin inconsistencias de captura del periodo ni clientes sin atención.
       </Card>
     );
   }
@@ -1209,7 +1209,7 @@ function TratosEstancadosResumen({ filas }: { filas: DealEstancado[] }) {
       <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Tratos estancados (10+ días)</h3>
       <p className="mb-2 text-[20px] font-semibold text-ink">{num(filas.length)}</p>
       {filas.length === 0 ? (
-        <p className="text-[12px] text-ink-soft">Sin negocios estancados este periodo.</p>
+        <p className="text-[12px] text-ink-soft">Sin negocios estancados.</p>
       ) : (
         <>
           <p className="text-[12px] text-ink-soft">{dinero(monto)} en riesgo de enfriarse</p>
@@ -1441,7 +1441,7 @@ function ProyeccionPipelineTarjeta({ proyeccion }: { proyeccion: ProyeccionPipel
   if (proyeccion.grupos.length === 0) {
     return (
       <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
-        Sin negocios abiertos en el pipeline este periodo.
+        Sin negocios abiertos en el pipeline.
       </Card>
     );
   }
