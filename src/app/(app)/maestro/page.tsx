@@ -89,7 +89,7 @@ export default async function Maestro({
   const seleccionado = sp.vendedor ? filas[0] : undefined;
   const resumen = seleccionado
     ? {
-        titulo: `Resumen ejecutivo — ${seleccionado.nombre_corto}`,
+        titulo: `🎯 Mi Centro de Mando — ${seleccionado.nombre_corto}`,
         cifraOficial: false,
         venta_total_iva: seleccionado.venta_total_iva,
         objetivo_total_iva: seleccionado.objetivo_total,
@@ -106,7 +106,7 @@ export default async function Maestro({
         ciclo_cierre_promedio: seleccionado.ciclo_cierre_dias,
       }
     : {
-        titulo: "Resumen ejecutivo del área",
+        titulo: "🎯 Centro de Mando del área",
         cifraOficial: Boolean(area?.venta_total_iva != null),
         venta_total_iva: area?.venta_total_iva ?? null,
         objetivo_total_iva: area?.objetivo_total_iva ?? null,
@@ -127,7 +127,9 @@ export default async function Maestro({
     <>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-[20px] font-semibold tracking-tight text-ink">Dashboard maestro</h1>
+          <h1 className="text-[20px] font-semibold tracking-tight text-ink">
+            {seleccionado ? `Hola, ${seleccionado.nombre_corto} 👋` : "Dashboard maestro"}
+          </h1>
           <p className="mt-0.5 text-[13px] text-ink-soft">
             {periodo.etiqueta} · <span className="tabular">{ventanaTexto}</span>
             {periodo.cerrado && <span className="ml-2 text-ink-muted">Periodo cerrado</span>}
@@ -336,7 +338,7 @@ export default async function Maestro({
           Solo aplica a un vendedor filtrado: son diagnósticos y retos
           individuales, no tienen lectura agregada de equipo. */}
       <Seccion
-        titulo="Coach Comercial: Enfoque Prioritario"
+        titulo="💡 El Coach Comercial"
         descripcion={seleccionado ? `Diagnóstico táctico de ${seleccionado.nombre_corto} para este mes.` : "Filtra por vendedor para ver su Coach Comercial."}
       >
         {seleccionado ? (
@@ -348,7 +350,7 @@ export default async function Maestro({
 
       {seleccionado && disciplina && (
         <Seccion
-          titulo="Disciplina Comercial: Retos Semanales"
+          titulo="📊 Mi Ritmo de Cierre (S1-S4)"
           descripcion={`Cumplimiento semana a semana (S1-S4) de ${seleccionado.nombre_corto} contra su propia meta y ritmo, calendario real de ${periodo.etiqueta}.`}
         >
           <DisciplinaComercial disciplina={disciplina} />

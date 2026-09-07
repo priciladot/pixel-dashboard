@@ -4,7 +4,7 @@ import type { Calidad, Semaforo } from "@/lib/types";
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-card border border-line bg-surface ${className}`}>{children}</div>
+    <div className={`rounded-card border border-line bg-surface shadow-sm ${className}`}>{children}</div>
   );
 }
 
