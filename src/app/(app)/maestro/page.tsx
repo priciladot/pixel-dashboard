@@ -13,7 +13,7 @@ import {
   type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
   type PasoEmbudo, type VelocidadNegocio, type GanadosPerdidos,
 } from "@/lib/queries";
-import { Card, KpiCard, Seccion, Vacio } from "@/components/ui";
+import { Card, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { TablaComparativa } from "@/components/TablaComparativa";
 import { MezclaCartera } from "@/components/MezclaCartera";
@@ -200,17 +200,22 @@ export default async function Maestro({
             valor={dineroCorto(resumen.venta_total_iva)}
             apoyo={dinero(resumen.venta_total_iva)}
           />
-          <KpiCard
-            etiqueta="Cumplimiento"
-            valor={pct(resumen.cumplimiento_pct)}
-            apoyo={`Objetivo ${dineroCorto(resumen.objetivo_total_iva)}`}
-            lectura={
-              resumen.cumplimiento_pct == null ? undefined :
-              resumen.cumplimiento_pct >= 100 ? "En objetivo" :
-              `Faltan ${dineroCorto((resumen.objetivo_total_iva ?? 0) - (resumen.venta_total_iva ?? 0))}`
-            }
-            estado={resumen.cumplimiento_pct != null && resumen.cumplimiento_pct >= 100 ? "cumple" : "debajo"}
-          />
+          <div>
+            <KpiCard
+              etiqueta="Cumplimiento"
+              valor={pct(resumen.cumplimiento_pct)}
+              apoyo={`Meta ${dineroCorto(resumen.objetivo_total_iva)}${resumen.objetivo_pe_iva ? ` · PE ${dineroCorto(resumen.objetivo_pe_iva)}` : ""}`}
+              lectura={
+                resumen.cumplimiento_pct == null ? undefined :
+                resumen.semaforo === "verde" ? "En objetivo" :
+                resumen.semaforo === "amarillo" ? `Sobre el PE, faltan ${dineroCorto((resumen.objetivo_total_iva ?? 0) - (resumen.venta_total_iva ?? 0))} para la Meta` :
+                resumen.objetivo_pe_iva ? `Debajo del PE por ${dineroCorto(resumen.objetivo_pe_iva - (resumen.venta_total_iva ?? 0))}` :
+                `Faltan ${dineroCorto((resumen.objetivo_total_iva ?? 0) - (resumen.venta_total_iva ?? 0))}`
+              }
+              estado={resumen.cumplimiento_pct != null && resumen.cumplimiento_pct >= 100 ? "cumple" : "debajo"}
+            />
+            <div className="mt-1.5"><SemaforoBadge estado={resumen.semaforo} compacto /></div>
+          </div>
           <KpiCard
             etiqueta="Negocios ganados"
             valor={num(resumen.deals_ganados)}

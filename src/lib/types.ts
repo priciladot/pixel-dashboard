@@ -45,6 +45,7 @@ export interface KpiVendedor {
   venta_total_iva: number;
   venta_total_sin_iva: number;
   objetivo_total: number | null;
+  objetivo_pe: number | null;
   objetivo_confirmado: boolean | null;
   cumplimiento_pct: number | null;
   semaforo: Semaforo;
@@ -78,10 +79,12 @@ export interface ResumenArea {
   cerrado: boolean;
   ventana: Ventana;
   objetivo_total_iva: number | null;
+  objetivo_pe_iva: number | null;
   venta_total_iva: number | null;
   venta_existentes_iva: number | null;
   venta_nuevos_iva: number | null;
   cumplimiento_pct: number | null;
+  semaforo: Semaforo;
   leads_registrados: number | null;
   leads_relevantes: number | null;
   leads_con_deal: number | null;
