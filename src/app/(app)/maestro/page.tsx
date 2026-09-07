@@ -1,22 +1,38 @@
-import { requiereRol } from "@/lib/auth";
+import { esAdmin, requiereRol } from "@/lib/auth";
+import { periodos } from "@/lib/queries";
 import { TorreDeControl } from "@/components/TorreDeControl";
+import { BotonSincronizarHubspot } from "@/components/BotonSincronizarHubspot";
 
 export const dynamic = "force-dynamic";
 
 export default async function Maestro({
   searchParams,
 }: { searchParams: Promise<{ periodo?: string; vendedor?: string; ventana?: string; vista?: string }> }) {
-  await requiereRol("admin", "supervisor");
+  const perfil = await requiereRol("admin", "supervisor");
   const sp = await searchParams;
 
+  // Mismo criterio de resolución que TorreDeControl -- el botón debe
+  // sincronizar el periodo que realmente se está viendo, no un default
+  // distinto al de la pantalla.
+  const lista = await periodos();
+  const periodoId = sp.periodo && lista.some((p) => p.id === sp.periodo) ? sp.periodo : lista[0]?.id;
+  const periodo = lista.find((p) => p.id === periodoId);
+
   return (
-    <TorreDeControl
-      periodoIdParam={sp.periodo}
-      ventanaParam={sp.ventana}
-      vistaParam={sp.vista}
-      vendedorIdForzado={sp.vendedor}
-      mostrarFiltroVendedor
-      mostrarEncabezado
-    />
+    <>
+      {esAdmin(perfil) && periodoId && periodo && (
+        <div className="mb-3 flex justify-end">
+          <BotonSincronizarHubspot periodoId={periodoId} etiqueta={periodo.etiqueta} />
+        </div>
+      )}
+      <TorreDeControl
+        periodoIdParam={sp.periodo}
+        ventanaParam={sp.ventana}
+        vistaParam={sp.vista}
+        vendedorIdForzado={sp.vendedor}
+        mostrarFiltroVendedor
+        mostrarEncabezado
+      />
+    </>
   );
 }
