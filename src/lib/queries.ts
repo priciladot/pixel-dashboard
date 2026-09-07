@@ -378,6 +378,7 @@ export async function accionesPrioritarias(periodoId: string, vendedorId?: strin
 export interface VentaProducto {
   hubspot_id: string;
   vendedor_id: string | null;
+  nombre_deal: string | null;
   empresa: string | null;
   correo_cliente: string | null;
   productos: string | null;
@@ -385,7 +386,12 @@ export interface VentaProducto {
   monto_con_iva: number | null;
 }
 
-/** Negocios ganados del periodo con empresa/producto/canal de Monday, para el desglose por vendedor. */
+/**
+ * Negocios ganados del periodo con empresa/producto/canal de Monday, para
+ * el desglose por vendedor. Incluye el nombre del deal (HubSpot) como
+ * respaldo de despliegue: si `empresa` viene vacía en Monday, la UI NUNCA
+ * debe caer al nombre de un vendedor -- usa el nombre del deal en su lugar.
+ */
 export async function ventasConProducto(periodoId: string, vendedorId?: string): Promise<VentaProducto[]> {
   const supabase = await createClient();
   let q = supabase
@@ -395,13 +401,22 @@ export async function ventasConProducto(periodoId: string, vendedorId?: string):
     .eq("cerrado_ganado", true);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.limit(1000);
-
-  return ((data as Array<{
+  const filas = (data as Array<{
     hubspot_id: string; vendedor_id: string | null; empresa: string | null; correo_cliente: string | null;
     productos: string | null; como_llego: string | null; monto_atribuido_con_iva: number | null;
-  }>) ?? []).map((r) => ({
+  }>) ?? [];
+  if (filas.length === 0) return [];
+
+  const nombres = await porLotes([...new Set(filas.map((f) => f.hubspot_id))], 200, async (lote) => {
+    const { data } = await supabase.from("hubspot_deals").select("hubspot_id, nombre").in("hubspot_id", lote);
+    return (data as Array<{ hubspot_id: string; nombre: string | null }>) ?? [];
+  });
+  const mapaNombres = new Map(nombres.map((n) => [n.hubspot_id, n.nombre]));
+
+  return filas.map((r) => ({
     hubspot_id: r.hubspot_id,
     vendedor_id: r.vendedor_id,
+    nombre_deal: mapaNombres.get(r.hubspot_id) ?? null,
     empresa: r.empresa,
     correo_cliente: r.correo_cliente,
     productos: r.productos,
@@ -1179,7 +1194,7 @@ export async function diagnosticoCoach(periodoId: string, vendedorId: string): P
 /* Disciplina Comercial -- retos semanales S1-S4, del calendario real   */
 /* ------------------------------------------------------------------ */
 
-export type EstatusReto = "cumplido" | "en_progreso" | "no_alcanzado" | "sin_dato";
+export type EstatusReto = "cumplido" | "en_progreso" | "no_alcanzado" | "sin_dato" | "pendiente";
 
 export interface RetoSemana {
   semana: number;
@@ -1307,6 +1322,23 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
 
   const semanasFinal: RetoSemana[] = base.map((f, idx) => {
     const anterior = idx > 0 ? base[idx - 1] : null;
+    const esFutura = f.inicio > hoy;
+
+    // Una semana que todavía no empieza no tiene nada que evaluar -- 0
+    // negocios/0 monto ahí no significa "no alcanzado" (fracasó) ni
+    // "cumplido" (comparar 0 contra 0 de la semana anterior, también
+    // futura, daba falso positivo en verde). Es "pendiente": aún no pasa.
+    if (esFutura) {
+      return {
+        ...f,
+        estatusCierre: "pendiente",
+        estatusCrm: "pendiente",
+        negociosCreadosSemanaAnterior: anterior?.negociosCreados ?? null,
+        estatusVolumen: "pendiente",
+        estatusGeneral: "pendiente",
+      };
+    }
+
     const estatusVolumen: EstatusReto =
       anterior == null ? "sin_dato" :
       f.negociosCreados >= anterior.negociosCreados ? "cumplido" :

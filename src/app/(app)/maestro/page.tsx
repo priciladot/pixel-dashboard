@@ -489,6 +489,7 @@ function EmbudoEtapas({ filas }: { filas: Array<{ etapa_actual: string }> }) {
 function NegociosEstancados({
   filas, mapaVendedores, mostrarVendedor,
 }: { filas: DealEstancado[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
+  const nombresVendedores = nombresDeVendedores(mapaVendedores);
   if (filas.length === 0) {
     return (
       <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
@@ -518,7 +519,7 @@ function NegociosEstancados({
                   <td className="px-4 py-2.5 text-ink-soft">{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</td>
                 )}
                 <td className="px-4 py-2.5 text-ink">{f.nombre ?? `#${f.hubspot_id}`}</td>
-                <td className="px-4 py-2.5 text-ink-soft">{f.empresa ?? "—"}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{empresaSegura(f.empresa, nombresVendedores, "")}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{nombreEtapa(f.etapa_actual)}</td>
                 <td className="px-4 py-2.5 tabular text-ink-soft">{dinero(f.monto_con_iva)}</td>
                 <td className="px-4 py-2.5 tabular font-medium text-[#8a3b1f]">{f.dias_sin_actividad}d</td>
@@ -698,9 +699,27 @@ function accionBandera(flag: string, d: DealPorRevisar): string {
 }
 
 /** Ventas ganadas del periodo con empresa/producto de Monday, agrupadas visualmente por vendedor. */
+/**
+ * "Empresa / Agencia" viene de una columna de Monday que a veces queda
+ * vacía o, por error de captura en el tablero, con el nombre de un
+ * vendedor en vez del cliente. Nunca se despliega el nombre de un
+ * vendedor ahí -- si `empresa` coincide con alguien del equipo, o viene
+ * vacía, se usa `respaldo` (el nombre del deal en HubSpot, o "—").
+ */
+function empresaSegura(empresa: string | null | undefined, nombresVendedores: Set<string>, respaldo: string): string {
+  const limpio = empresa?.trim();
+  if (limpio && !nombresVendedores.has(limpio.toLowerCase())) return limpio;
+  return respaldo || "—";
+}
+
+function nombresDeVendedores(mapaVendedores: Map<string, string>): Set<string> {
+  return new Set([...mapaVendedores.values()].map((n) => n.toLowerCase()));
+}
+
 function VentasProductosTabla({
   filas, mapaVendedores, mostrarVendedor,
 }: { filas: VentaProducto[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
+  const nombresVendedores = nombresDeVendedores(mapaVendedores);
   if (filas.length === 0) {
     return (
       <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
@@ -729,7 +748,7 @@ function VentasProductosTabla({
                 {mostrarVendedor && (
                   <td className="px-4 py-2.5 text-ink">{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</td>
                 )}
-                <td className="px-4 py-2.5 text-ink-soft">{f.empresa ?? "—"}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{empresaSegura(f.empresa, nombresVendedores, f.nombre_deal ?? "")}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{f.correo_cliente ?? "—"}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{f.productos ?? "—"}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{f.canal ?? "—"}</td>
@@ -1139,6 +1158,7 @@ const ESTATUS_RETO: Record<EstatusReto, { etiqueta: string; icono: string; color
   en_progreso:  { etiqueta: "En progreso",  icono: "◐", color: "#8a6100", bg: "#fdf4e0", borde: "#f2dfae" },
   no_alcanzado: { etiqueta: "No alcanzado", icono: "▲", color: "#d03b3b", bg: "#fdecec", borde: "#f3c2c2" },
   sin_dato:     { etiqueta: "Sin dato",     icono: "○", color: "#52514e", bg: "#f2f1ed", borde: "#e1e0d9" },
+  pendiente:    { etiqueta: "Pendiente",    icono: "○", color: "#52514e", bg: "#f2f1ed", borde: "#e1e0d9" },
 };
 
 function EstatusBadge({ estado }: { estado: EstatusReto }) {
