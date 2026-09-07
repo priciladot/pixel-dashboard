@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-type Resultado = { ok: true; filasOk: number; filasSanitizadas: number } | { ok: false; error: string };
+type Resultado =
+  | { ok: true; filasOk: number; filasSanitizadas: number; negociosTotal: number; negociosConContactoAsociado: number }
+  | { ok: false; error: string };
 
 /**
  * Atajo de "Sincronizar con HubSpot" directo en /maestro -- antes solo
@@ -31,7 +33,13 @@ export function BotonSincronizarHubspot({ periodoId, etiqueta }: { periodoId: st
       if (!res.ok) {
         setResultado({ ok: false, error: data.error ?? "No se pudo sincronizar." });
       } else {
-        setResultado({ ok: true, filasOk: data.filasOk ?? 0, filasSanitizadas: data.filasSanitizadas ?? 0 });
+        setResultado({
+          ok: true,
+          filasOk: data.filasOk ?? 0,
+          filasSanitizadas: data.filasSanitizadas ?? 0,
+          negociosTotal: data.diagnostico?.negociosTotal ?? 0,
+          negociosConContactoAsociado: data.diagnostico?.negociosConContactoAsociado ?? 0,
+        });
         router.refresh();
       }
     } catch {
@@ -52,9 +60,9 @@ export function BotonSincronizarHubspot({ periodoId, etiqueta }: { periodoId: st
         {cargando ? "Sincronizando…" : "🔄 Sincronizar HubSpot"}
       </button>
       {resultado && (
-        <p className={`text-[11px] ${resultado.ok ? "text-ink-muted" : "text-[#d03b3b]"}`}>
+        <p className={`max-w-[260px] text-right text-[11px] ${resultado.ok ? "text-ink-muted" : "text-[#d03b3b]"}`}>
           {resultado.ok
-            ? `Listo -- ${resultado.filasOk} negocios ok, ${resultado.filasSanitizadas} marcados.`
+            ? `Listo -- ${resultado.filasOk} negocios ok, ${resultado.filasSanitizadas} marcados · ${resultado.negociosConContactoAsociado}/${resultado.negociosTotal} con contacto de HubSpot asociado.`
             : resultado.error}
         </p>
       )}

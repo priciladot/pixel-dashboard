@@ -47,11 +47,14 @@ export async function POST(req: Request) {
     ]);
 
     // sanearLote deduplica por hubspot_id, así que el traslape no cuenta doble.
-    // El search de arriba no trae associations de verdad (HubSpot lo ignora
-    // en silencio ahí) -- enriquecerConAsociaciones hace el segundo paso
-    // obligatorio contra /deals/batch/read para traer contacto_ids/empresa_id reales.
+    // Las associations se resuelven aparte, contra el API de Asociaciones v4
+    // (ver comentario de enriquecerConAsociaciones para el porqué).
     const sinContactos = enriquecerConOwners([...cerrados, ...creados, ...abiertos], owners);
     const crudos = await enriquecerConAsociaciones(sinContactos);
+
+    // Diagnóstico directo en la respuesta -- para confirmar de un vistazo si
+    // esta corrida sí trajo contactos, sin tener que ir a Supabase a revisar.
+    const conContacto = crudos.filter((d) => (d.contacto_ids?.length ?? 0) > 0).length;
 
     const resultado = await ingestarDeals(db, crudos, {
       tipo: "hubspot_api",
@@ -61,7 +64,12 @@ export async function POST(req: Request) {
       simulacion,
     });
 
-    return NextResponse.json({ ok: true, rango: { desde, hasta }, ...resultado });
+    return NextResponse.json({
+      ok: true,
+      rango: { desde, hasta },
+      diagnostico: { negociosTotal: crudos.length, negociosConContactoAsociado: conContacto },
+      ...resultado,
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Error desconocido en la ingesta" },

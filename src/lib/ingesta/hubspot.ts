@@ -238,56 +238,62 @@ function aDealCrudo(d: DealApi): DealCrudo {
   };
 }
 
-interface DealAsociacionesApi {
-  id: string;
-  associations?: {
-    contacts?: { results: Array<{ id: string }> };
-    companies?: { results: Array<{ id: string }> };
-  };
+interface AsociacionV4Api {
+  from: { id: string };
+  to: Array<{ toObjectId: string }>;
 }
 
 /**
- * Segundo paso OBLIGATORIO para traer contacto_ids/empresa_id: el endpoint
- * de búsqueda (/deals/search) ignora en silencio el parámetro
- * "associations" en el cuerpo de la petición -- mismo problema, documentado,
- * que "propertiesWithHistory" (ver buscarHistorialEtapas() en
- * hubspot-analitica.ts). Solo /deals/batch/read las devuelve de verdad, así
- * que buscarDeals()/buscarDealsCreados()/buscarDealsAbiertos() ya NO piden
- * associations en el search -- este segundo paso, sobre los ids que salieron
- * de esa búsqueda, es el único que realmente las trae.
+ * Trae, en bloque, los ids de contactos (o empresas) asociados a una lista
+ * de deals -- vía el API DEDICADO de Asociaciones v4
+ * (/crm/v4/associations/{from}/{to}/batch/read), no un parámetro lateral de
+ * otro endpoint. Se llega aquí después de que DOS intentos previos
+ * fallaron en silencio: "associations" en /deals/search (ignorado, mismo
+ * problema que propertiesWithHistory) y también en /deals/batch/read (esa
+ * combinación tampoco lo entrega) -- este es el mecanismo que HubSpot
+ * documenta específicamente para esto, y no depende de ningún parámetro
+ * "de cortesía" de otro objeto.
  */
-export async function enriquecerConAsociaciones(deals: DealCrudo[]): Promise<DealCrudo[]> {
-  const ids = [...new Set(deals.map((d) => d.hubspot_id))];
-  if (ids.length === 0) return deals;
+async function asociacionesV4(hacia: "contacts" | "companies", ids: string[]): Promise<Map<string, string[]>> {
+  const mapa = new Map<string, string[]>();
+  if (ids.length === 0) return mapa;
 
   const lotes: string[][] = [];
   for (let i = 0; i < ids.length; i += 100) lotes.push(ids.slice(i, i + 100));
 
   const resultados = await Promise.all(lotes.map((lote) =>
-    api<{ results: DealAsociacionesApi[] }>("/crm/v3/objects/deals/batch/read", {
+    api<{ results: AsociacionV4Api[] }>(`/crm/v4/associations/deals/${hacia}/batch/read`, {
       method: "POST",
-      body: JSON.stringify({
-        properties: [],
-        inputs: lote.map((id) => ({ id })),
-        associations: ["contacts", "companies"],
-      }),
+      body: JSON.stringify({ inputs: lote.map((id) => ({ id })) }),
     }),
   ));
 
-  const mapa = new Map<string, { contacto_ids: string[]; empresa_id: string | null }>();
   for (const r of resultados) {
-    for (const d of r.results) {
-      mapa.set(d.id, {
-        contacto_ids: (d.associations?.contacts?.results ?? []).map((c) => c.id),
-        empresa_id: d.associations?.companies?.results?.[0]?.id ?? null,
-      });
+    for (const item of r.results) {
+      mapa.set(item.from.id, (item.to ?? []).map((t) => t.toObjectId));
     }
   }
+  return mapa;
+}
+
+/**
+ * Segundo paso OBLIGATORIO para traer contacto_ids/empresa_id -- buscarDeals()/
+ * buscarDealsCreados()/buscarDealsAbiertos() solo traen ids y propiedades,
+ * las asociaciones se resuelven aparte contra el API de Asociaciones v4.
+ */
+export async function enriquecerConAsociaciones(deals: DealCrudo[]): Promise<DealCrudo[]> {
+  const ids = [...new Set(deals.map((d) => d.hubspot_id))];
+  if (ids.length === 0) return deals;
+
+  const [mapaContactos, mapaEmpresas] = await Promise.all([
+    asociacionesV4("contacts", ids),
+    asociacionesV4("companies", ids),
+  ]);
 
   return deals.map((d) => ({
     ...d,
-    contacto_ids: mapa.get(d.hubspot_id)?.contacto_ids ?? [],
-    empresa_id: mapa.get(d.hubspot_id)?.empresa_id ?? null,
+    contacto_ids: mapaContactos.get(d.hubspot_id) ?? [],
+    empresa_id: mapaEmpresas.get(d.hubspot_id)?.[0] ?? null,
   }));
 }
 
