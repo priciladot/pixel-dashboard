@@ -94,10 +94,6 @@ export async function listarOwners(): Promise<Owner[]> {
 interface DealApi {
   id: string;
   properties: Record<string, string | null>;
-  associations?: {
-    contacts?: { results: Array<{ id: string }> };
-    companies?: { results: Array<{ id: string }> };
-  };
 }
 
 /**
@@ -124,7 +120,6 @@ export async function buscarDeals(desde: string, hasta: string): Promise<DealCru
         ],
       }],
       properties: propiedades,
-      associations: ["contacts", "companies"],
       limit: 100,
       ...(after ? { after } : {}),
     };
@@ -156,7 +151,6 @@ export async function buscarDealsCreados(desde: string, hasta: string): Promise<
         ],
       }],
       properties: propiedades,
-      associations: ["contacts", "companies"],
       limit: 100,
       ...(after ? { after } : {}),
     };
@@ -198,7 +192,6 @@ export async function buscarDealsAbiertos(): Promise<DealCrudo[]> {
         ],
       }],
       properties: propiedades,
-      associations: ["contacts", "companies"],
       limit: 100,
       ...(after ? { after } : {}),
     };
@@ -238,10 +231,64 @@ function aDealCrudo(d: DealApi): DealCrudo {
     // El portal no marca las divisiones con una propiedad: se detectan por
     // firma (mismo nombre de negocio + mismo monto) en la capa de saneo.
     es_division: false,
-    contacto_ids: (d.associations?.contacts?.results ?? []).map((r) => r.id),
-    empresa_id: d.associations?.companies?.results?.[0]?.id ?? null,
+    // contacto_ids/empresa_id se rellenan aparte -- ver enriquecerConAsociaciones().
+    contacto_ids: [],
+    empresa_id: null,
     raw: d,
   };
+}
+
+interface DealAsociacionesApi {
+  id: string;
+  associations?: {
+    contacts?: { results: Array<{ id: string }> };
+    companies?: { results: Array<{ id: string }> };
+  };
+}
+
+/**
+ * Segundo paso OBLIGATORIO para traer contacto_ids/empresa_id: el endpoint
+ * de búsqueda (/deals/search) ignora en silencio el parámetro
+ * "associations" en el cuerpo de la petición -- mismo problema, documentado,
+ * que "propertiesWithHistory" (ver buscarHistorialEtapas() en
+ * hubspot-analitica.ts). Solo /deals/batch/read las devuelve de verdad, así
+ * que buscarDeals()/buscarDealsCreados()/buscarDealsAbiertos() ya NO piden
+ * associations en el search -- este segundo paso, sobre los ids que salieron
+ * de esa búsqueda, es el único que realmente las trae.
+ */
+export async function enriquecerConAsociaciones(deals: DealCrudo[]): Promise<DealCrudo[]> {
+  const ids = [...new Set(deals.map((d) => d.hubspot_id))];
+  if (ids.length === 0) return deals;
+
+  const lotes: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) lotes.push(ids.slice(i, i + 100));
+
+  const resultados = await Promise.all(lotes.map((lote) =>
+    api<{ results: DealAsociacionesApi[] }>("/crm/v3/objects/deals/batch/read", {
+      method: "POST",
+      body: JSON.stringify({
+        properties: [],
+        inputs: lote.map((id) => ({ id })),
+        associations: ["contacts", "companies"],
+      }),
+    }),
+  ));
+
+  const mapa = new Map<string, { contacto_ids: string[]; empresa_id: string | null }>();
+  for (const r of resultados) {
+    for (const d of r.results) {
+      mapa.set(d.id, {
+        contacto_ids: (d.associations?.contacts?.results ?? []).map((c) => c.id),
+        empresa_id: d.associations?.companies?.results?.[0]?.id ?? null,
+      });
+    }
+  }
+
+  return deals.map((d) => ({
+    ...d,
+    contacto_ids: mapa.get(d.hubspot_id)?.contacto_ids ?? [],
+    empresa_id: mapa.get(d.hubspot_id)?.empresa_id ?? null,
+  }));
 }
 
 /** Rellena owner_nombre para que la sanitización pueda mapear por alias. */

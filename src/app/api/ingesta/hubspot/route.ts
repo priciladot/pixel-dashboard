@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buscarDeals, buscarDealsAbiertos, buscarDealsCreados, enriquecerConOwners, listarOwners } from "@/lib/ingesta/hubspot";
+import { buscarDeals, buscarDealsAbiertos, buscarDealsCreados, enriquecerConAsociaciones, enriquecerConOwners, listarOwners } from "@/lib/ingesta/hubspot";
 import { ingestarDeals } from "@/lib/ingesta/cargar";
 
 export const runtime = "nodejs";
@@ -47,7 +47,11 @@ export async function POST(req: Request) {
     ]);
 
     // sanearLote deduplica por hubspot_id, así que el traslape no cuenta doble.
-    const crudos = enriquecerConOwners([...cerrados, ...creados, ...abiertos], owners);
+    // El search de arriba no trae associations de verdad (HubSpot lo ignora
+    // en silencio ahí) -- enriquecerConAsociaciones hace el segundo paso
+    // obligatorio contra /deals/batch/read para traer contacto_ids/empresa_id reales.
+    const sinContactos = enriquecerConOwners([...cerrados, ...creados, ...abiertos], owners);
+    const crudos = await enriquecerConAsociaciones(sinContactos);
 
     const resultado = await ingestarDeals(db, crudos, {
       tipo: "hubspot_api",
