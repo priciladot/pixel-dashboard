@@ -6,12 +6,13 @@ import {
   tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday,
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
-  embudoConConversion, velocidadNegocios, ganadosPerdidos,
+  embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
   type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
-  type PasoEmbudo, type VelocidadNegocio, type GanadosPerdidos,
+  type PasoEmbudo, type VelocidadNegocio, type GanadosPerdidos, type AccionCoach,
+  type DisciplinaComercial as TDisciplinaComercial, type EstatusReto,
 } from "@/lib/queries";
 import { Card, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
@@ -43,6 +44,7 @@ export default async function Maestro({
     equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday,
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
     actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
+    coachAcciones, disciplina,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
@@ -65,6 +67,8 @@ export default async function Maestro({
     embudoConConversion(periodoId, vistaTiempo, sp.vendedor),
     velocidadNegocios(periodoId, vistaTiempo, sp.vendedor),
     ganadosPerdidos(periodoId, vistaTiempo, sp.vendedor),
+    sp.vendedor ? diagnosticoCoach(periodoId, sp.vendedor) : Promise.resolve([] as AccionCoach[]),
+    sp.vendedor ? disciplinaComercial(periodoId, sp.vendedor) : Promise.resolve(null as TDisciplinaComercial | null),
   ]);
 
   const filas = sp.vendedor ? equipo.filter((f) => f.vendedor_id === sp.vendedor) : equipo;
@@ -88,7 +92,9 @@ export default async function Maestro({
         cifraOficial: false,
         venta_total_iva: seleccionado.venta_total_iva,
         objetivo_total_iva: seleccionado.objetivo_total,
+        objetivo_pe_iva: seleccionado.objetivo_pe,
         cumplimiento_pct: seleccionado.cumplimiento_pct,
+        semaforo: seleccionado.semaforo,
         deals_ganados: seleccionado.deals_ganados,
         ganado_sin_iva: null as number | null,
         tareas_abiertas: tareas.length,
@@ -104,7 +110,9 @@ export default async function Maestro({
         cifraOficial: Boolean(area?.venta_total_iva != null),
         venta_total_iva: area?.venta_total_iva ?? null,
         objetivo_total_iva: area?.objetivo_total_iva ?? null,
+        objetivo_pe_iva: area?.objetivo_pe_iva ?? null,
         cumplimiento_pct: area?.cumplimiento_pct ?? null,
+        semaforo: area?.semaforo ?? "sin_dato",
         deals_ganados: area?.deals_ganados ?? null,
         ganado_sin_iva: area?.ganado_sin_iva ?? null,
         tareas_abiertas: tareas.length,
@@ -325,6 +333,29 @@ export default async function Maestro({
       >
         <VentasProductosTabla filas={ventasProducto} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
       </Seccion>
+
+      {/* Coach Comercial y Disciplina Comercial -------------------------------
+          Solo aplica a un vendedor filtrado: son diagnósticos y retos
+          individuales, no tienen lectura agregada de equipo. */}
+      <Seccion
+        titulo="Coach Comercial: Enfoque Prioritario"
+        descripcion={seleccionado ? `Diagnóstico táctico de ${seleccionado.nombre_corto} para este mes.` : "Filtra por vendedor para ver su Coach Comercial."}
+      >
+        {seleccionado ? (
+          <CoachComercial acciones={coachAcciones} />
+        ) : (
+          <Vacio titulo="Selecciona un vendedor" detalle="El Coach Comercial diagnostica a una persona a la vez -- filtra arriba." />
+        )}
+      </Seccion>
+
+      {seleccionado && disciplina && (
+        <Seccion
+          titulo="Disciplina Comercial: Retos Semanales"
+          descripcion={`Cumplimiento semana a semana (S1-S4) de ${seleccionado.nombre_corto} contra su propia meta y ritmo, calendario real de ${periodo.etiqueta}.`}
+        >
+          <DisciplinaComercial disciplina={disciplina} />
+        </Seccion>
+      )}
 
       {/* Suite de analítica de HubSpot (réplica) -----------------------------
           3 de los 10 reportes originales no están aquí -- necesitan datos
@@ -1010,5 +1041,132 @@ function NoDisponibleAnalitica() {
         <li><span className="font-medium">Resultados de reuniones</span> — nunca se pidió la propiedad de resultado (hs_meeting_outcome) al sincronizar; hay que ampliar la ingesta y volver a correrla para tener esto.</li>
       </ul>
     </div>
+  );
+}
+
+const ESTATUS_RETO: Record<EstatusReto, { etiqueta: string; icono: string; color: string; bg: string; borde: string }> = {
+  cumplido:     { etiqueta: "Cumplido",     icono: "●", color: "#0ca30c", bg: "#e9f7e9", borde: "#bfe6bf" },
+  en_progreso:  { etiqueta: "En progreso",  icono: "◐", color: "#8a6100", bg: "#fdf4e0", borde: "#f2dfae" },
+  no_alcanzado: { etiqueta: "No alcanzado", icono: "▲", color: "#d03b3b", bg: "#fdecec", borde: "#f3c2c2" },
+  sin_dato:     { etiqueta: "Sin dato",     icono: "○", color: "#52514e", bg: "#f2f1ed", borde: "#e1e0d9" },
+};
+
+function EstatusBadge({ estado }: { estado: EstatusReto }) {
+  const s = ESTATUS_RETO[estado];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium"
+      style={{ color: s.color, backgroundColor: s.bg, borderColor: s.borde }}
+    >
+      <span aria-hidden="true">{s.icono}</span>
+      {s.etiqueta}
+    </span>
+  );
+}
+
+const ETIQUETA_CATEGORIA_COACH: Record<AccionCoach["categoria"], string> = {
+  conversion: "Conversión", higiene: "Higiene CRM", velocidad: "Velocidad de cierre", ticket: "Ticket promedio",
+};
+const COLOR_CATEGORIA_COACH: Record<AccionCoach["categoria"], string> = {
+  conversion: "#c0392b", higiene: "#a04a25", velocidad: "#8a6100", ticket: "#2a78d6",
+};
+
+/** Coach Comercial: diagnóstico y 2-3 micro-acciones del vendedor filtrado, 100% derivadas de la Suite de Analítica ya calculada. */
+function CoachComercial({ acciones }: { acciones: AccionCoach[] }) {
+  if (acciones.length === 0) {
+    return (
+      <p className="text-[13px] text-ink-soft">
+        Sin focos de atención este mes -- ningún indicador crítico, o todavía no hay negocios registrados en el periodo.
+      </p>
+    );
+  }
+  const [retoSemana, ...resto] = acciones;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-card border border-line bg-surface-sunk px-4 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Reto de la semana</p>
+        <p className="mt-1 text-[13px] font-medium text-ink">{retoSemana.mensaje}</p>
+      </div>
+      {resto.length > 0 && (
+        <div className="grid gap-3 md:grid-cols-2">
+          {resto.slice(0, 2).map((a) => (
+            <div key={a.categoria} className="rounded-card border border-line bg-surface px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLOR_CATEGORIA_COACH[a.categoria] }}>
+                {ETIQUETA_CATEGORIA_COACH[a.categoria]}
+              </p>
+              <p className="mt-1 text-[12px] text-ink-soft">{a.diagnostico}</p>
+              <p className="mt-1.5 text-[13px] text-ink">{a.mensaje}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Disciplina Comercial: retos S1-S4 del calendario real de periodo_semanas, racha y alerta de abandono de CRM. */
+function DisciplinaComercial({ disciplina }: { disciplina: TDisciplinaComercial }) {
+  const { semanas, rachaSemanas, alerta } = disciplina;
+  if (semanas.length === 0) {
+    return <p className="text-[13px] text-ink-soft">Sin calendario de semanas (S1-S4) configurado para este periodo.</p>;
+  }
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <div className="rounded-full border border-line bg-surface-sunk px-3 py-1 text-[12px] font-medium text-ink">
+          🔥 Racha de Disciplina: {rachaSemanas} semana{rachaSemanas === 1 ? "" : "s"} consecutiva{rachaSemanas === 1 ? "" : "s"}
+        </div>
+        {alerta && (
+          <div className="rounded-full border border-[#f3c2c2] bg-[#fdecec] px-3 py-1 text-[12px] font-medium text-[#d03b3b]">
+            {alerta}
+          </div>
+        )}
+      </div>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] border-collapse text-[13px]">
+            <thead>
+              <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+                <th className="px-4 py-2.5 font-medium">Semana</th>
+                <th className="px-4 py-2.5 font-medium">Monto vendido</th>
+                <th className="px-4 py-2.5 font-medium">Reto de cierre</th>
+                <th className="px-4 py-2.5 font-medium">Negocios creados</th>
+                <th className="px-4 py-2.5 font-medium">Reto de volumen</th>
+                <th className="px-4 py-2.5 font-medium">Tareas (hechas/asignadas)</th>
+                <th className="px-4 py-2.5 font-medium">Reto de CRM</th>
+                <th className="px-4 py-2.5 font-medium">Estatus</th>
+              </tr>
+            </thead>
+            <tbody>
+              {semanas.map((s) => (
+                <tr key={s.semana} className="border-b border-line/70 last:border-0">
+                  <td className="px-4 py-2.5 text-ink">
+                    {s.etiqueta}
+                    {s.esSemanaActual && <span className="ml-1.5 text-[10px] font-medium text-serie-1">(en curso)</span>}
+                  </td>
+                  <td className="px-4 py-2.5 tabular text-ink-soft">
+                    {dinero(s.montoVendido)}
+                    {s.metaCierreSemana != null && (
+                      <span className="block text-[11px] text-ink-muted">meta {dinero(s.metaCierreSemana)}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5"><EstatusBadge estado={s.estatusCierre} /></td>
+                  <td className="px-4 py-2.5 tabular text-ink-soft">
+                    {num(s.negociosCreados)}
+                    {s.negociosCreadosSemanaAnterior != null && (
+                      <span className="block text-[11px] text-ink-muted">semana ant. {s.negociosCreadosSemanaAnterior}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5"><EstatusBadge estado={s.estatusVolumen} /></td>
+                  <td className="px-4 py-2.5 tabular text-ink-soft">{s.tareasCompletadas}/{s.tareasAsignadas}</td>
+                  <td className="px-4 py-2.5"><EstatusBadge estado={s.estatusCrm} /></td>
+                  <td className="px-4 py-2.5"><EstatusBadge estado={s.estatusGeneral} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </>
   );
 }

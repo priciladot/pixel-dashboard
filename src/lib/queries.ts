@@ -1,6 +1,6 @@
 import { createClient } from "./supabase/server";
 import { etapaInfo, nombreEtapa, ETAPAS_PIPELINE } from "./pipeline-etapas";
-import { dinero } from "./format";
+import { dinero, pct } from "./format";
 import type {
   Accion, Benchmark, ContextoMercado, Evaluacion, FilaBrecha,
   KpiVendedor, Perfil, Periodo, ResumenArea, Ventana,
@@ -1057,4 +1057,269 @@ export async function ganadosPerdidos(periodoId: string, vista: VistaTiempo, ven
   const ganados = filas.filter((d) => d.cerrado_ganado).length;
   const perdidos = filas.length - ganados;
   return { ganados, perdidos, tasaGanadosPct: filas.length > 0 ? (ganados / filas.length) * 100 : 0 };
+}
+
+/* ------------------------------------------------------------------ */
+/* Coach Comercial -- diagnóstico táctico del vendedor seleccionado     */
+/* ------------------------------------------------------------------ */
+
+export type CategoriaCoach = "conversion" | "higiene" | "velocidad" | "ticket";
+
+export interface AccionCoach {
+  categoria: CategoriaCoach;
+  diagnostico: string;
+  mensaje: string;
+}
+
+async function dealsDelVendedorEnPeriodo(periodoId: string, vendedorId: string): Promise<number> {
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("hubspot_deals")
+    .select("hubspot_id", { count: "exact", head: true })
+    .eq("periodo_id", periodoId)
+    .eq("vendedor_id", vendedorId);
+  return count ?? 0;
+}
+
+/**
+ * Diagnóstico del mes en curso para UN vendedor (no trimestral -- el coach
+ * habla de "este mes"), armado 100% con datos ya calculados para la Suite de
+ * Analítica (ganadosPerdidos, actividadesPorTipo, velocidadNegocios,
+ * tamanoPromedioNegocio). No dispara ninguna regla si el vendedor no tiene
+ * negocios en el periodo -- un "0 actividades" sin negocios no es una alerta
+ * real, es que no hubo nada que registrar.
+ *
+ * El "Ticket Promedio está por debajo del Objetivo" del pedido original se
+ * lee contra el promedio del EQUIPO, no contra una meta de ticket -- esa
+ * meta no existe en el esquema (objetivos solo guarda montos totales, no
+ * ticket esperado), así que inventar un umbral sería la misma falla de
+ * "patrones falsos con muestra chica" que ya se descartó para el motor de
+ * éxito. El mensaje lo deja explícito.
+ */
+export async function diagnosticoCoach(periodoId: string, vendedorId: string): Promise<AccionCoach[]> {
+  const totalDeals = await dealsDelVendedorEnPeriodo(periodoId, vendedorId);
+  if (totalDeals === 0) return [];
+
+  const [gp, actividades, velocidad, tamanoVendedor, tamanoEquipo] = await Promise.all([
+    ganadosPerdidos(periodoId, "mensual", vendedorId),
+    actividadesPorTipo(periodoId, "mensual", vendedorId),
+    velocidadNegocios(periodoId, "mensual", vendedorId),
+    tamanoPromedioNegocio(periodoId, "mensual", vendedorId),
+    tamanoPromedioNegocio(periodoId, "mensual"),
+  ]);
+
+  const acciones: AccionCoach[] = [];
+
+  const cierres = gp.ganados + gp.perdidos;
+  if (cierres > 0 && gp.tasaGanadosPct < 25) {
+    acciones.push({
+      categoria: "conversion",
+      diagnostico: "Baja conversión / pérdida alta de tratos",
+      mensaje: `Foco en Calificación Temprana: perdiste ${gp.perdidos} de ${cierres} negocios cerrados este mes (${pct(gp.tasaGanadosPct)} de conversión). No cotices sin antes validar presupuesto y decisión. Objetivo: elevar la conversión a 30%.`,
+    });
+  }
+
+  const totalActividades = actividades.reduce((acc, a) => acc + a.total, 0);
+  if (totalActividades === 0) {
+    acciones.push({
+      categoria: "higiene",
+      diagnostico: "Falla de registro e higiene en HubSpot",
+      mensaje: "Punto Ciego de Seguimiento: tienes 0 actividades registradas este mes. Registra hoy al menos 1 nota o llamada por trato activo para no perder visibilidad del pipeline.",
+    });
+  }
+
+  const velocidadVendedor = velocidad.find((v) => v.vendedor_id === vendedorId);
+  if (velocidadVendedor && velocidadVendedor.deals > 0 && velocidadVendedor.dias_promedio_cierre > 18) {
+    acciones.push({
+      categoria: "velocidad",
+      diagnostico: "Ciclo de venta extendido",
+      mensaje: `Aceleración de Cierre: tu ciclo promedio es de ${velocidadVendedor.dias_promedio_cierre.toFixed(1)} días. Aplica la técnica de "Acuerdo de Siguiente Paso": agenda fecha y hora exacta de revisión antes de colgar la llamada.`,
+    });
+  }
+
+  const ticketVendedor = tamanoVendedor.find((t) => t.vendedor_id === vendedorId);
+  const dealsEquipo = tamanoEquipo.reduce((acc, t) => acc + t.deals, 0);
+  const ticketEquipoPromedio = dealsEquipo > 0
+    ? tamanoEquipo.reduce((acc, t) => acc + t.ticket_promedio_con_iva * t.deals, 0) / dealsEquipo
+    : 0;
+  if (ticketVendedor && ticketVendedor.deals > 0 && ticketEquipoPromedio > 0 && ticketVendedor.ticket_promedio_con_iva < ticketEquipoPromedio) {
+    acciones.push({
+      categoria: "ticket",
+      diagnostico: "Oportunidad de cross-selling / upselling",
+      mensaje: `Incremento de Ticket: tu ticket promedio es de ${dinero(ticketVendedor.ticket_promedio_con_iva)}, por debajo del promedio del equipo (${dinero(ticketEquipoPromedio)} -- no hay una meta de ticket capturada, se compara contra el equipo). Incluye un módulo de valor añadido en tus próximas propuestas.`,
+    });
+  }
+
+  return acciones;
+}
+
+/* ------------------------------------------------------------------ */
+/* Disciplina Comercial -- retos semanales S1-S4, del calendario real   */
+/* ------------------------------------------------------------------ */
+
+export type EstatusReto = "cumplido" | "en_progreso" | "no_alcanzado" | "sin_dato";
+
+export interface RetoSemana {
+  semana: number;
+  etiqueta: string;
+  inicio: string;
+  fin: string;
+  esSemanaActual: boolean;
+  montoVendido: number;
+  metaCierreSemana: number | null;
+  estatusCierre: EstatusReto;
+  negociosCreados: number;
+  negociosCreadosSemanaAnterior: number | null;
+  estatusVolumen: EstatusReto;
+  tareasAsignadas: number;
+  tareasCompletadas: number;
+  estatusCrm: EstatusReto;
+  notas: number;
+  estatusGeneral: EstatusReto;
+}
+
+export interface DisciplinaComercial {
+  semanas: RetoSemana[];
+  rachaSemanas: number;
+  alerta: string | null;
+  estancadosSemanaActual: number | null;
+}
+
+function estatusGeneralDe(estados: EstatusReto[]): EstatusReto {
+  const evaluables = estados.filter((e) => e !== "sin_dato");
+  if (evaluables.length === 0) return "sin_dato";
+  if (evaluables.includes("no_alcanzado")) return "no_alcanzado";
+  if (evaluables.includes("en_progreso")) return "en_progreso";
+  return "cumplido";
+}
+
+/**
+ * Retos semanales S1-S4 con datos reales del calendario `periodo_semanas`.
+ * Reglas, todas trazables a un dato real (nada de metas inventadas):
+ *  - Reto de Cierre: la meta semanal es el objetivo mensual del vendedor / 4
+ *    -- el ritmo real necesario para llegar a SU meta ya capturada, no un
+ *    número aparte.
+ *  - Reto de Volumen: no hay una meta de "negocios por semana" en el
+ *    esquema, así que se compara contra la semana anterior del mismo
+ *    periodo (S1 queda "sin_dato": no hay semana previa contra qué medir).
+ *  - Reto de CRM: 100% de tareas con vencimiento esa semana completadas.
+ *    El sub-criterio "0 negocios con 5+ días sin atención" del pedido
+ *    original SOLO se puede evaluar en tiempo real (v_deal_actividad guarda
+ *    el estado actual, no una foto histórica por semana) -- por eso se
+ *    reporta aparte, únicamente para la semana en curso.
+ */
+export async function disciplinaComercial(periodoId: string, vendedorId: string): Promise<DisciplinaComercial> {
+  const supabase = await createClient();
+
+  const [{ data: semanasRaw }, { data: objetivoRow }] = await Promise.all([
+    supabase.from("periodo_semanas").select("semana, inicio, fin").eq("periodo_id", periodoId).order("semana", { ascending: true }),
+    supabase.from("objetivos").select("objetivo_total").eq("periodo_id", periodoId).eq("vendedor_id", vendedorId).maybeSingle(),
+  ]);
+
+  const semanas = (semanasRaw as Array<{ semana: number; inicio: string; fin: string }>) ?? [];
+  if (semanas.length === 0) return { semanas: [], rachaSemanas: 0, alerta: null, estancadosSemanaActual: null };
+
+  const metaCierreSemana = objetivoRow?.objetivo_total ? objetivoRow.objetivo_total / 4 : null;
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const base = await Promise.all(semanas.map(async (s) => {
+    const inicioTs = `${s.inicio}T00:00:00`;
+    const finTs = `${s.fin}T23:59:59`;
+
+    const [ganados, creados, tareas, notasSemana] = await Promise.all([
+      (async () => {
+        const { data } = await supabase.from("hubspot_deals").select("monto_con_iva")
+          .eq("vendedor_id", vendedorId).eq("cerrado_ganado", true)
+          .gte("fecha_cierre", inicioTs).lte("fecha_cierre", finTs);
+        return (data as Array<{ monto_con_iva: number | null }>) ?? [];
+      })(),
+      (async () => {
+        const { data } = await supabase.from("hubspot_deals").select("hubspot_id")
+          .eq("vendedor_id", vendedorId)
+          .gte("fecha_creacion", inicioTs).lte("fecha_creacion", finTs);
+        return (data as Array<{ hubspot_id: string }>) ?? [];
+      })(),
+      (async () => {
+        const { data } = await supabase.from("hubspot_engagements").select("estado")
+          .eq("vendedor_id", vendedorId).eq("tipo", "task")
+          .gte("fecha", inicioTs).lte("fecha", finTs);
+        return (data as Array<{ estado: string | null }>) ?? [];
+      })(),
+      (async () => {
+        const { data } = await supabase.from("hubspot_engagements").select("hubspot_id")
+          .eq("vendedor_id", vendedorId).eq("tipo", "note")
+          .gte("fecha", inicioTs).lte("fecha", finTs);
+        return (data as Array<{ hubspot_id: string }>) ?? [];
+      })(),
+    ]);
+
+    const montoVendido = ganados.reduce((acc, d) => acc + (d.monto_con_iva ?? 0), 0);
+    const estatusCierre: EstatusReto =
+      metaCierreSemana == null ? "sin_dato" :
+      montoVendido >= metaCierreSemana ? "cumplido" :
+      montoVendido >= metaCierreSemana * 0.7 ? "en_progreso" : "no_alcanzado";
+
+    const tareasAsignadas = tareas.length;
+    const tareasCompletadas = tareas.filter((t) => t.estado === "COMPLETED").length;
+    const estatusCrm: EstatusReto =
+      tareasAsignadas === 0 ? "sin_dato" :
+      tareasCompletadas === tareasAsignadas ? "cumplido" :
+      tareasCompletadas / tareasAsignadas >= 0.5 ? "en_progreso" : "no_alcanzado";
+
+    return {
+      semana: s.semana,
+      etiqueta: `S${s.semana}`,
+      inicio: s.inicio,
+      fin: s.fin,
+      esSemanaActual: hoy >= s.inicio && hoy <= s.fin,
+      montoVendido,
+      metaCierreSemana,
+      estatusCierre,
+      negociosCreados: creados.length,
+      tareasAsignadas,
+      tareasCompletadas,
+      estatusCrm,
+      notas: notasSemana.length,
+    };
+  }));
+
+  const semanasFinal: RetoSemana[] = base.map((f, idx) => {
+    const anterior = idx > 0 ? base[idx - 1] : null;
+    const estatusVolumen: EstatusReto =
+      anterior == null ? "sin_dato" :
+      f.negociosCreados >= anterior.negociosCreados ? "cumplido" :
+      f.negociosCreados >= anterior.negociosCreados * 0.7 ? "en_progreso" : "no_alcanzado";
+    return {
+      ...f,
+      negociosCreadosSemanaAnterior: anterior?.negociosCreados ?? null,
+      estatusVolumen,
+      estatusGeneral: estatusGeneralDe([f.estatusCierre, f.estatusCrm, estatusVolumen]),
+    };
+  });
+
+  const evaluables = semanasFinal.filter((f) => f.fin <= hoy);
+  let rachaSemanas = 0;
+  for (let i = evaluables.length - 1; i >= 0; i--) {
+    if (evaluables[i].estatusGeneral === "cumplido") rachaSemanas++; else break;
+  }
+
+  const semanaActual = semanasFinal.find((f) => f.esSemanaActual) ?? null;
+  const semanaAnteriorAActual = semanaActual ? semanasFinal.find((f) => f.semana === semanaActual.semana - 1) ?? null : null;
+  let alerta: string | null = null;
+  if (semanaActual) {
+    if (semanaActual.notas === 0) {
+      alerta = "Alerta de Disciplina: 0 notas registradas esta semana en HubSpot.";
+    } else if (semanaAnteriorAActual && semanaActual.notas < semanaAnteriorAActual.notas) {
+      alerta = "Alerta de Disciplina: bajó tu registro de CRM (notas) respecto a la semana pasada.";
+    }
+  }
+
+  const estancadosSemanaActual = semanaActual
+    ? (await dealsEstancados(periodoId, vendedorId, 5)).length
+    : null;
+  if (estancadosSemanaActual && estancadosSemanaActual > 0 && !alerta) {
+    alerta = `Alerta de Disciplina: ${estancadosSemanaActual} negocio(s) con 5+ días sin atención.`;
+  }
+
+  return { semanas: semanasFinal, rachaSemanas, alerta, estancadosSemanaActual };
 }
