@@ -852,19 +852,38 @@ function ProyeccionSemana({
   );
 }
 
+/** Tooltip informativo: icono con el texto en el `title` nativo, mismo patrón que CalidadBadge en ui.tsx. */
+function InfoTip({ texto }: { texto: string }) {
+  return (
+    <span className="ml-1.5 inline-flex cursor-help items-center text-[11px] text-ink-muted" title={texto} aria-label={texto}>
+      ℹ️
+    </span>
+  );
+}
+
+const ETIQUETA_ACTIVIDAD_DISPLAY: Record<string, string> = {
+  Tarea: "Tareas cerradas",
+  Nota: "Notas / Minutas registradas",
+  Reunión: "Juntas y demos agendadas",
+  Llamada: "Llamadas registradas",
+};
+
 /** #1 Actividades finalizadas por tipo. */
 function ActividadesPorTipoResumen({ filas }: { filas: ActividadPorTipo[] }) {
   const total = filas.reduce((acc, f) => acc + f.total, 0);
   return (
     <Card className="px-4 py-4">
-      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Actividades finalizadas</h3>
+      <h3 className="mb-2.5 flex items-center text-[13px] font-semibold text-ink">
+        Bitácora de seguimiento (CRM)
+        <InfoTip texto="Suma de interacciones registradas automáticamente por sincronización (Calendar/Meet) o de forma manual en la ficha del cliente." />
+      </h3>
       {total === 0 ? (
         <p className="text-[13px] text-ink-soft">Sin actividades registradas en este periodo.</p>
       ) : (
         <ul className="space-y-1.5">
           {filas.map((f) => (
             <li key={f.tipo} className="flex items-center justify-between text-[12px]">
-              <span className="text-ink-soft">{f.tipo}</span>
+              <span className="text-ink-soft">{ETIQUETA_ACTIVIDAD_DISPLAY[f.tipo] ?? f.tipo}</span>
               <span className="tabular font-medium text-ink">{num(f.total)}</span>
             </li>
           ))}
@@ -882,13 +901,16 @@ function TareasPorEstadoResumen({
   const totalSinIniciar = filas.reduce((acc, f) => acc + f.sin_iniciar, 0);
   return (
     <Card className="px-4 py-4">
-      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Tareas por estado</h3>
+      <h3 className="mb-2.5 flex items-center text-[13px] font-semibold text-ink">
+        Gestión de tareas
+        <InfoTip texto="Incluye tareas programadas pendientes de ejecutar y tareas con fecha vencida en HubSpot." />
+      </h3>
       <div className="mb-2 flex items-center justify-between text-[13px]">
-        <span className="text-ink-soft">Terminadas</span>
+        <span className="text-ink-soft">Completadas a tiempo</span>
         <span className="tabular font-medium text-[#1f9d55]">{num(totalCompletadas)}</span>
       </div>
       <div className="mb-2 flex items-center justify-between text-[13px]">
-        <span className="text-ink-soft">Sin iniciar</span>
+        <span className="text-ink-soft">Pendientes y atrasadas</span>
         <span className="tabular font-medium text-[#8a3b1f]">{num(totalSinIniciar)}</span>
       </div>
       {mostrarVendedor && filas.length > 0 && (
