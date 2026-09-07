@@ -140,59 +140,11 @@ export default async function Maestro({
         </Suspense>
       </div>
 
-      {/* Copiloto: acciones prioritarias + focos rojos ----------------------
-          "Alertas de producto inactivo" queda pendiente — necesita una
-          regla de tendencia histórica que todavía no está definida. */}
-      <Seccion
-        titulo="Acciones prioritarias del día"
-        descripcion={
-          seleccionado
-            ? `Tareas vencidas de ${seleccionado.nombre_corto}, ordenadas por el monto del negocio en riesgo.`
-            : "Tareas vencidas de todo el equipo, ordenadas por el monto del negocio en riesgo."
-        }
-      >
-        <AccionesPrioritarias acciones={acciones} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-      </Seccion>
+      {/* ================================================================
+          ACTO 1 — Diagnóstico y coaching
+          ================================================================ */}
 
-      <Seccion
-        titulo="Focos rojos — negocios estancados"
-        descripcion={
-          seleccionado
-            ? `Negocios de ${seleccionado.nombre_corto} en etapa activa sin actividad real (nota, correo, llamada o tarea) hace 7+ días.`
-            : "Negocios de todo el equipo en etapa activa sin actividad real hace 7+ días."
-        }
-      >
-        <NegociosEstancados filas={estancados} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-      </Seccion>
-
-      {/* Auditoría de higiene: HubSpot vs. Monday ---------------------------- */}
-      <Seccion
-        titulo={`Focos rojos de auditoría e higiene (${higiene.length})`}
-        descripcion={
-          seleccionado
-            ? `Inconsistencias de captura de ${seleccionado.nombre_corto} entre HubSpot y Monday, y clientes sin atención 5+ días.`
-            : "Inconsistencias de captura entre HubSpot y Monday, y clientes sin atención 5+ días, para todo el equipo."
-        }
-      >
-        <AlertasHigiene alertas={higiene} />
-      </Seccion>
-
-      {/* Semana pasada / próxima semana (calendario S1-S4 real) ------------- */}
-      <Seccion
-        titulo="Cierre de la semana"
-        descripcion={
-          seleccionado
-            ? `Lo que ${seleccionado.nombre_corto} cerró la semana pasada y lo que tiene proyectado para la próxima, con fechas reales de HubSpot.`
-            : "Lo que el equipo cerró la semana pasada y lo que tiene proyectado para la próxima, con fechas reales de HubSpot."
-        }
-      >
-        <div className="grid gap-3 lg:grid-cols-2">
-          <ProductosSemanaPasada rango={semanaPasada.rango} filas={semanaPasada.filas} />
-          <ProyeccionSemana rango={proyeccion.rango} filas={proyeccion.filas} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-        </div>
-      </Seccion>
-
-      {/* Resumen ejecutivo ------------------------------------------------ */}
+      {/* Resumen ejecutivo -------------------------------------------------- */}
       <Seccion
         titulo={resumen.titulo}
         descripcion={
@@ -263,6 +215,27 @@ export default async function Maestro({
         </div>
       </Seccion>
 
+      {resumen.ciclo_cierre_promedio != null && (
+        <p className="-mt-5 mb-8 text-[12px] text-ink-muted">
+          {seleccionado ? `Ciclo de cierre de ${seleccionado.nombre_corto}` : "Ciclo de cierre promedio del equipo"}:{" "}
+          <span className="tabular font-medium text-ink-soft">{dias(resumen.ciclo_cierre_promedio)}</span>
+        </p>
+      )}
+
+      {/* Coach Comercial -----------------------------------------------------
+          Solo aplica a un vendedor filtrado: es un diagnóstico individual,
+          no tiene lectura agregada de equipo. */}
+      <Seccion
+        titulo="💡 El Coach Comercial"
+        descripcion={seleccionado ? `Diagnóstico táctico de ${seleccionado.nombre_corto} para este mes.` : "Filtra por vendedor para ver su Coach Comercial."}
+      >
+        {seleccionado ? (
+          <CoachComercial acciones={coachAcciones} />
+        ) : (
+          <Vacio titulo="Selecciona un vendedor" detalle="El Coach Comercial diagnostica a una persona a la vez -- filtra arriba." />
+        )}
+      </Seccion>
+
       {/* Comparativo ------------------------------------------------------ */}
       <Seccion
         titulo="Comparativa de desempeño y cumplimiento"
@@ -283,6 +256,75 @@ export default async function Maestro({
           </p>
         )}
       </Seccion>
+
+      {/* ================================================================
+          ACTO 2 — Mi plan y focos rojos (acción diaria)
+          ================================================================ */}
+
+      {seleccionado && disciplina && (
+        <Seccion
+          titulo="📊 Mi Ritmo de Cierre (S1-S4)"
+          descripcion={`Cumplimiento semana a semana (S1-S4) de ${seleccionado.nombre_corto} contra su propia meta y ritmo, calendario real de ${periodo.etiqueta}.`}
+        >
+          <DisciplinaComercial disciplina={disciplina} />
+        </Seccion>
+      )}
+
+      {/* Semana pasada / próxima semana (calendario S1-S4 real) ------------- */}
+      <Seccion
+        titulo="Cierre de la semana"
+        descripcion={
+          seleccionado
+            ? `Lo que ${seleccionado.nombre_corto} cerró la semana pasada y lo que tiene proyectado para la próxima, con fechas reales de HubSpot.`
+            : "Lo que el equipo cerró la semana pasada y lo que tiene proyectado para la próxima, con fechas reales de HubSpot."
+        }
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <ProductosSemanaPasada rango={semanaPasada.rango} filas={semanaPasada.filas} />
+          <ProyeccionSemana rango={proyeccion.rango} filas={proyeccion.filas} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+        </div>
+      </Seccion>
+
+      {/* Copiloto: acciones prioritarias -------------------------------------
+          "Alertas de producto inactivo" queda pendiente — necesita una
+          regla de tendencia histórica que todavía no está definida. */}
+      <Seccion
+        titulo="Acciones prioritarias del día"
+        descripcion={
+          seleccionado
+            ? `Tareas vencidas de ${seleccionado.nombre_corto}, ordenadas por el monto del negocio en riesgo.`
+            : "Tareas vencidas de todo el equipo, ordenadas por el monto del negocio en riesgo."
+        }
+      >
+        <AccionesPrioritarias acciones={acciones} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+      </Seccion>
+
+      <Seccion
+        titulo="Focos rojos — negocios estancados"
+        descripcion={
+          seleccionado
+            ? `Negocios de ${seleccionado.nombre_corto} en etapa activa sin actividad real (nota, correo, llamada o tarea) hace 7+ días.`
+            : "Negocios de todo el equipo en etapa activa sin actividad real hace 7+ días."
+        }
+      >
+        <NegociosEstancados filas={estancados} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+      </Seccion>
+
+      {/* Auditoría de higiene: HubSpot vs. Monday ---------------------------- */}
+      <Seccion
+        titulo={`Focos rojos de auditoría e higiene (${higiene.length})`}
+        descripcion={
+          seleccionado
+            ? `Inconsistencias de captura de ${seleccionado.nombre_corto} entre HubSpot y Monday, y clientes sin atención 5+ días.`
+            : "Inconsistencias de captura entre HubSpot y Monday, y clientes sin atención 5+ días, para todo el equipo."
+        }
+      >
+        <AlertasHigiene alertas={higiene} />
+      </Seccion>
+
+      {/* ================================================================
+          ACTO 3 — Análisis de fugas y salud del pipeline (inteligencia)
+          ================================================================ */}
 
       {/* Origen y canal de venta (Monday) -----------------------------------
           A propósito solo mira los negocios que SÍ están en Monday -- esta
@@ -322,41 +364,6 @@ export default async function Maestro({
         <MotivosPerdidaLista filas={perdidas} />
       </Seccion>
 
-      {/* Ventas y productos cerrados ----------------------------------------- */}
-      <Seccion
-        titulo="Desglose de ventas y productos cerrados"
-        descripcion={
-          seleccionado
-            ? `Negocios ganados de ${seleccionado.nombre_corto} en el periodo, con empresa y producto de Monday.`
-            : "Negocios ganados del periodo, con empresa y producto de Monday."
-        }
-      >
-        <VentasProductosTabla filas={ventasProducto} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-      </Seccion>
-
-      {/* Coach Comercial y Disciplina Comercial -------------------------------
-          Solo aplica a un vendedor filtrado: son diagnósticos y retos
-          individuales, no tienen lectura agregada de equipo. */}
-      <Seccion
-        titulo="💡 El Coach Comercial"
-        descripcion={seleccionado ? `Diagnóstico táctico de ${seleccionado.nombre_corto} para este mes.` : "Filtra por vendedor para ver su Coach Comercial."}
-      >
-        {seleccionado ? (
-          <CoachComercial acciones={coachAcciones} />
-        ) : (
-          <Vacio titulo="Selecciona un vendedor" detalle="El Coach Comercial diagnostica a una persona a la vez -- filtra arriba." />
-        )}
-      </Seccion>
-
-      {seleccionado && disciplina && (
-        <Seccion
-          titulo="📊 Mi Ritmo de Cierre (S1-S4)"
-          descripcion={`Cumplimiento semana a semana (S1-S4) de ${seleccionado.nombre_corto} contra su propia meta y ritmo, calendario real de ${periodo.etiqueta}.`}
-        >
-          <DisciplinaComercial disciplina={disciplina} />
-        </Seccion>
-      )}
-
       {/* Suite de analítica comercial ------------------------------------- */}
       <Seccion
         titulo={`Suite de analítica comercial — ${vistaTiempo === "trimestral" ? "Trimestral (Q3)" : "Mensual"}`}
@@ -381,6 +388,22 @@ export default async function Maestro({
         <div className="mt-3">
           <EmbudoDetallado filas={embudoDetallado} />
         </div>
+      </Seccion>
+
+      {/* ================================================================
+          ACTO 4 — Detalle operativo (transparencia)
+          ================================================================ */}
+
+      {/* Ventas y productos cerrados ----------------------------------------- */}
+      <Seccion
+        titulo="Desglose de ventas y productos cerrados"
+        descripcion={
+          seleccionado
+            ? `Negocios ganados de ${seleccionado.nombre_corto} en el periodo, con empresa y producto de Monday.`
+            : "Negocios ganados del periodo, con empresa y producto de Monday."
+        }
+      >
+        <VentasProductosTabla filas={ventasProducto} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
       </Seccion>
 
       {/* Calidad de datos ------------------------------------------------- */}
@@ -434,13 +457,6 @@ export default async function Maestro({
           </Card>
         )}
       </Seccion>
-
-      {resumen.ciclo_cierre_promedio != null && (
-        <p className="text-[12px] text-ink-muted">
-          {seleccionado ? `Ciclo de cierre de ${seleccionado.nombre_corto}` : "Ciclo de cierre promedio del equipo"}:{" "}
-          <span className="tabular font-medium text-ink-soft">{dias(resumen.ciclo_cierre_promedio)}</span>
-        </p>
-      )}
     </>
   );
 }
