@@ -98,6 +98,7 @@ export async function TorreDeControl({
   const filas = vendedorId ? equipo.filter((f) => f.vendedor_id === vendedorId) : equipo;
   const tareasAtrasadas = tareas.filter((t) => t.atrasada).length;
   const mapaVendedores = new Map(personas.map((p) => [p.id, p.nombre_corto]));
+  const nombresVendedores = nombresDeVendedores(mapaVendedores);
   const conObjetivoPorConfirmar = equipo.some((f) => f.objetivo_confirmado === false);
   const [rangoInicio, rangoFin] = ventana === "kpi_4_semanas"
     ? [periodo.kpi_inicio, periodo.kpi_fin]
@@ -378,10 +379,14 @@ export async function TorreDeControl({
         ) : (
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse text-[13px]">
+              <table className="w-full min-w-[1020px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
                     <th className="px-4 py-2.5 font-medium">Negocio</th>
+                    <th className="px-4 py-2.5 font-medium">Empresa / Agencia</th>
+                    <th className="px-4 py-2.5 font-medium">Correo de contacto</th>
+                    <th className="px-4 py-2.5 font-medium">Producto(s)</th>
+                    <th className="px-4 py-2.5 font-medium">Canal</th>
                     <th className="px-4 py-2.5 font-medium">Monto sin IVA</th>
                     <th className="px-4 py-2.5 font-medium">Qué hay que hacer</th>
                   </tr>
@@ -390,6 +395,10 @@ export async function TorreDeControl({
                   {revisar.slice(0, 25).map((d) => (
                     <tr key={d.hubspot_id} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
                       <td className="px-4 py-2.5 text-ink">{d.nombre ?? `#${d.hubspot_id}`}</td>
+                      <td className="px-4 py-2.5 text-ink-soft">{empresaSegura(d.empresa, nombresVendedores, "")}</td>
+                      <td className="px-4 py-2.5 text-ink-soft">{d.correo_cliente ?? "—"}</td>
+                      <td className="px-4 py-2.5 text-ink-soft">{d.productos ?? "—"}</td>
+                      <td className="px-4 py-2.5 text-ink-soft">{d.canal ?? "—"}</td>
                       <td className="px-4 py-2.5 tabular text-ink-soft">{dinero(d.monto_sin_iva)}</td>
                       <td className="px-4 py-2.5">
                         <ul className="space-y-1">
@@ -566,12 +575,15 @@ function NegociosEstancados({
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-[13px]">
+        <table className="w-full min-w-[980px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
               {mostrarVendedor && <th className="px-4 py-2.5 font-medium">Vendedor</th>}
               <th className="px-4 py-2.5 font-medium">Negocio</th>
               <th className="px-4 py-2.5 font-medium">Empresa / Agencia</th>
+              <th className="px-4 py-2.5 font-medium">Correo de contacto</th>
+              <th className="px-4 py-2.5 font-medium">Producto(s)</th>
+              <th className="px-4 py-2.5 font-medium">Canal</th>
               <th className="px-4 py-2.5 font-medium">Etapa</th>
               <th className="px-4 py-2.5 font-medium">Monto</th>
               <th className="px-4 py-2.5 font-medium">Sin actividad</th>
@@ -585,6 +597,9 @@ function NegociosEstancados({
                 )}
                 <td className="px-4 py-2.5 text-ink">{f.nombre ?? `#${f.hubspot_id}`}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{empresaSegura(f.empresa, nombresVendedores, "")}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{f.correo_cliente ?? "—"}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{f.productos ?? "—"}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{f.canal ?? "—"}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{nombreEtapa(f.etapa_actual)}</td>
                 <td className="px-4 py-2.5 tabular text-ink-soft">{dinero(f.monto_con_iva)}</td>
                 <td className="px-4 py-2.5 tabular font-medium text-[#8a3b1f]">{f.dias_sin_actividad}d</td>
@@ -874,7 +889,12 @@ function AlertasHigiene({ alertas }: { alertas: AlertaAuditoria[] }) {
           <span className="mt-0.5 shrink-0 rounded border border-[#f4cbb6] bg-white px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#a04a25]">
             {ETIQUETA_ALERTA[a.tipo]}
           </span>
-          <p className="text-[13px] text-ink">{a.mensaje}</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] text-ink">{a.mensaje}</p>
+            <p className="mt-1 truncate text-[11px] text-ink-muted">
+              {a.empresa ?? "Sin empresa"} · {a.correo_cliente ?? "Sin correo"} · {a.productos ?? "Sin producto"} · {a.canal ?? "Sin canal"}
+            </p>
+          </div>
         </li>
       ))}
     </ul>
@@ -1485,6 +1505,9 @@ function ProyeccionPipelineTarjeta({ proyeccion }: { proyeccion: ProyeccionPipel
                         <span className="truncate">{d.empresa ?? "—"} · {d.etapa_label}</span>
                         <span className="shrink-0 tabular">{d.fecha_cierre ? new Date(d.fecha_cierre).toLocaleDateString("es-MX") : "sin fecha"}</span>
                       </div>
+                      <p className="mt-0.5 truncate text-[11px] text-ink-muted">
+                        {d.correo_cliente ?? "Sin correo"} · {d.productos ?? "Sin producto"} · {d.canal ?? "Sin canal"}
+                      </p>
                       <span
                         className="mt-1 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
                         style={

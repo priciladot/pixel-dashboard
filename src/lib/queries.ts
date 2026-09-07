@@ -161,6 +161,11 @@ export interface DealPorRevisar {
   periodo_id: string | null;
   flags: string[];
   es_division: boolean;
+  /** Empresa/correo/producto/canal -- capturados en Monday, casi siempre vacíos si el negocio marcado sigue abierto (Monday solo registra tratos GANADOS). */
+  empresa: string | null;
+  correo_cliente: string | null;
+  productos: string | null;
+  canal: string | null;
 }
 
 /**
@@ -173,7 +178,26 @@ export async function dealsPorRevisar(vendedorId?: string): Promise<DealPorRevis
   let q = supabase.from("v_deals_por_revisar").select("*").limit(500);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q;
-  return (data as DealPorRevisar[]) ?? [];
+  const filas = (data as Array<Omit<DealPorRevisar, "empresa" | "correo_cliente" | "productos" | "canal">>) ?? [];
+  if (filas.length === 0) return [];
+
+  const { data: mondayRows } = await supabase
+    .from("monday_cierres").select("hubspot_id, empresa, correo_cliente, productos, como_llego")
+    .in("hubspot_id", filas.map((f) => f.hubspot_id));
+  const mapaMonday = new Map((
+    (mondayRows as Array<{ hubspot_id: string; empresa: string | null; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
+  ).map((m) => [m.hubspot_id, m]));
+
+  return filas.map((f) => {
+    const monday = mapaMonday.get(f.hubspot_id);
+    return {
+      ...f,
+      empresa: monday?.empresa ?? null,
+      correo_cliente: monday?.correo_cliente ?? null,
+      productos: monday?.productos ?? null,
+      canal: monday?.como_llego ?? null,
+    };
+  });
 }
 
 export interface FilaIngesta {
@@ -254,6 +278,9 @@ export interface DealEstancado {
   nombre: string | null;
   monto_con_iva: number | null;
   empresa: string | null;
+  correo_cliente: string | null;
+  productos: string | null;
+  canal: string | null;
   etapa_actual: string;
   vendedor_id: string | null;
   dias_sin_actividad: number;
@@ -278,7 +305,7 @@ export async function dealsEstancados(vendedorId?: string, diasUmbral = 7): Prom
   const { data } = await q.limit(2000);
 
   const ahora = Date.now();
-  return ((data as Array<{
+  const candidatos = ((data as Array<{
     hubspot_id: string; nombre: string | null; monto_con_iva: number | null; empresa: string | null;
     etapa_actual: string; vendedor_id: string | null; fecha_ultima_actividad: string;
   }>) ?? [])
@@ -294,6 +321,27 @@ export async function dealsEstancados(vendedorId?: string, diasUmbral = 7): Prom
     }))
     .filter((f) => f.dias_sin_actividad >= diasUmbral)
     .sort((a, b) => b.dias_sin_actividad - a.dias_sin_actividad);
+
+  if (candidatos.length === 0) return [];
+
+  // Correo/producto/canal -- Monday casi nunca tiene fila para un negocio
+  // TODAVÍA abierto (solo registra tratos ganados), pero se cruza por si acaso.
+  const { data: mondayRows } = await supabase
+    .from("monday_cierres").select("hubspot_id, correo_cliente, productos, como_llego")
+    .in("hubspot_id", candidatos.map((f) => f.hubspot_id));
+  const mapaMonday = new Map((
+    (mondayRows as Array<{ hubspot_id: string; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
+  ).map((m) => [m.hubspot_id, m]));
+
+  return candidatos.map((f) => {
+    const monday = mapaMonday.get(f.hubspot_id);
+    return {
+      ...f,
+      correo_cliente: monday?.correo_cliente ?? null,
+      productos: monday?.productos ?? null,
+      canal: monday?.como_llego ?? null,
+    };
+  });
 }
 
 export interface AccionPrioritaria {
@@ -406,6 +454,13 @@ export interface VentaProducto {
  * (Mar: $241,460 capturado en Monday vs. $280,094 con IVA). Aquí se
  * exponen ambos valores por separado en vez de mostrar uno solo con una
  * etiqueta que no le corresponde.
+ *
+ * Blindaje de aislamiento: además del filtro por periodo_id, se cruza
+ * contra hubspot_deals.fecha_cierre real y se descarta cualquier fila cuya
+ * fecha caiga fuera del mes calendario del periodo -- red de seguridad por
+ * si periodo_id llegara a desalinearse otra vez (como pasó con la ventana
+ * KPI vieja). No se hardcodea ningún mes: usa el rango real del periodoId
+ * que se pida, así que funciona igual para julio, agosto o septiembre.
  */
 export async function ventasConProducto(periodoId: string, vendedorId?: string): Promise<VentaProducto[]> {
   const supabase = await createClient();
@@ -420,6 +475,22 @@ export async function ventasConProducto(periodoId: string, vendedorId?: string):
     hubspot_id: string; vendedor_id: string | null; empresa: string | null; correo_cliente: string | null;
     productos: string | null; como_llego: string | null; monto_atribuido_con_iva: number | null;
   }>) ?? [];
+  if (filas.length === 0) return [];
+
+  const idGanado = ETAPAS_PIPELINE.find((e) => e.resultado === "ganado")?.id ?? null;
+  const { data: periodoRow } = await supabase.from("periodos").select("cal_inicio, cal_fin").eq("id", periodoId).maybeSingle();
+  if (periodoRow) {
+    const { data: fechas } = await supabase
+      .from("hubspot_deals").select("hubspot_id, fecha_cierre, etapa").in("hubspot_id", filas.map((f) => f.hubspot_id));
+    const mapaDeal = new Map(((fechas as Array<{ hubspot_id: string; fecha_cierre: string | null; etapa: string | null }>) ?? []).map((f) => [f.hubspot_id, f]));
+    filas = filas.filter((f) => {
+      const d = mapaDeal.get(f.hubspot_id);
+      if (!d?.fecha_cierre) return false;
+      if (idGanado && d.etapa !== idGanado) return false;
+      const soloFecha = d.fecha_cierre.slice(0, 10);
+      return soloFecha >= periodoRow.cal_inicio && soloFecha <= periodoRow.cal_fin;
+    });
+  }
   if (filas.length === 0) return [];
 
   // Con un vendedor filtrado, el mismo hubspot_id no debería repetirse --
@@ -574,6 +645,11 @@ export interface AlertaAuditoria {
   nombre: string | null;
   monto_con_iva: number | null;
   mensaje: string;
+  /** Empresa/correo/producto/canal -- capturados en Monday, casi siempre vacíos para negocios abiertos (Monday solo registra tratos GANADOS). */
+  empresa: string | null;
+  correo_cliente: string | null;
+  productos: string | null;
+  canal: string | null;
 }
 
 /** Negocios ganados en HubSpot que nunca se registraron en el tablero de Monday. */
@@ -606,6 +682,11 @@ async function ganadosSinMonday(
         nombre: d.nombre,
         monto_con_iva: d.monto_con_iva,
         mensaje: `${vendedor}: el trato "${negocio}" por ${dinero(d.monto_con_iva)} no ha sido cargado a Monday.`,
+        // Sin fila en Monday todavía -- por eso está en esta alerta. No hay empresa/correo/producto/canal que mostrar hasta que se capture.
+        empresa: null,
+        correo_cliente: null,
+        productos: null,
+        canal: null,
       };
     });
 }
@@ -616,7 +697,7 @@ async function mondaySinCanal(
   mapaVendedores: Map<string, string>,
 ): Promise<AlertaAuditoria[]> {
   let q = supabase.from("v_deals_operativo")
-    .select("hubspot_id, vendedor_id, empresa, monto_atribuido_con_iva, monday_elemento_id, como_llego")
+    .select("hubspot_id, vendedor_id, empresa, correo_cliente, productos, monto_atribuido_con_iva, monday_elemento_id, como_llego")
     .eq("periodo_id", periodoId)
     .not("monday_elemento_id", "is", null)
     .is("como_llego", null);
@@ -624,7 +705,8 @@ async function mondaySinCanal(
   const { data } = await q.limit(1000);
 
   return ((data as Array<{
-    hubspot_id: string; vendedor_id: string | null; empresa: string | null; monto_atribuido_con_iva: number | null;
+    hubspot_id: string; vendedor_id: string | null; empresa: string | null; correo_cliente: string | null;
+    productos: string | null; monto_atribuido_con_iva: number | null;
   }>) ?? []).map((r) => {
     const vendedor = r.vendedor_id ? mapaVendedores.get(r.vendedor_id) ?? "Sin asignar" : "Sin asignar";
     const empresa = r.empresa ?? `#${r.hubspot_id}`;
@@ -635,6 +717,11 @@ async function mondaySinCanal(
       nombre: r.empresa,
       monto_con_iva: r.monto_atribuido_con_iva,
       mensaje: `${vendedor}: el registro de "${empresa}" en Monday no tiene definido el canal ("¿Cómo llegó?").`,
+      empresa: r.empresa,
+      correo_cliente: r.correo_cliente,
+      productos: r.productos,
+      // Justo lo que falta -- por diseño null en esta alerta específica.
+      canal: null,
     };
   });
 }
@@ -653,11 +740,13 @@ async function sinAtencion(
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.limit(2000);
 
-  const ahora = Date.now();
-  return ((data as Array<{
-    hubspot_id: string; nombre: string | null; monto_con_iva: number | null;
+  const filasBase = (data as Array<{
+    hubspot_id: string; nombre: string | null; monto_con_iva: number | null; empresa: string | null;
     etapa_actual: string; vendedor_id: string | null; ultima_actividad_engagement: string | null;
-  }>) ?? [])
+  }>) ?? [];
+
+  const ahora = Date.now();
+  const candidatos = filasBase
     .filter((f) => etapaInfo(f.etapa_actual)?.resultado === "abierto")
     .map((f) => {
       // Sin ninguna actividad jamás: se ordena como "el más urgente de todos", pero como un
@@ -668,20 +757,37 @@ async function sinAtencion(
       return { ...f, dias };
     })
     .filter((f) => f.dias >= diasUmbral)
-    .sort((a, b) => b.dias - a.dias)
-    .map((f) => {
-      const vendedor = f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar";
-      const negocio = f.nombre ?? `#${f.hubspot_id}`;
-      const diasTexto = f.dias === Number.MAX_SAFE_INTEGER ? "nunca ha tenido" : `lleva ${f.dias} días sin`;
-      return {
-        tipo: "sin_atencion" as const,
-        hubspot_id: f.hubspot_id,
-        vendedor_id: f.vendedor_id,
-        nombre: f.nombre,
-        monto_con_iva: f.monto_con_iva,
-        mensaje: `${vendedor}: "${negocio}" ${diasTexto} ningún seguimiento o nota de atención registrada.`,
-      };
-    });
+    .sort((a, b) => b.dias - a.dias);
+
+  if (candidatos.length === 0) return [];
+
+  // Correo/producto -- Monday casi nunca tiene fila para un negocio TODAVÍA
+  // abierto (solo registra tratos ganados), pero se cruza por si acaso.
+  const { data: mondayRows } = await supabase
+    .from("monday_cierres").select("hubspot_id, correo_cliente, productos, como_llego")
+    .in("hubspot_id", candidatos.map((f) => f.hubspot_id));
+  const mapaMonday = new Map((
+    (mondayRows as Array<{ hubspot_id: string; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
+  ).map((m) => [m.hubspot_id, m]));
+
+  return candidatos.map((f) => {
+    const vendedor = f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar";
+    const negocio = f.nombre ?? `#${f.hubspot_id}`;
+    const diasTexto = f.dias === Number.MAX_SAFE_INTEGER ? "nunca ha tenido" : `lleva ${f.dias} días sin`;
+    const monday = mapaMonday.get(f.hubspot_id);
+    return {
+      tipo: "sin_atencion" as const,
+      hubspot_id: f.hubspot_id,
+      vendedor_id: f.vendedor_id,
+      nombre: f.nombre,
+      monto_con_iva: f.monto_con_iva,
+      mensaje: `${vendedor}: "${negocio}" ${diasTexto} ningún seguimiento o nota de atención registrada.`,
+      empresa: f.empresa,
+      correo_cliente: monday?.correo_cliente ?? null,
+      productos: monday?.productos ?? null,
+      canal: monday?.como_llego ?? null,
+    };
+  });
 }
 
 /**
@@ -1423,6 +1529,9 @@ export interface DealPipelineProyectado {
   hubspot_id: string;
   nombre: string | null;
   empresa: string | null;
+  correo_cliente: string | null;
+  productos: string | null;
+  canal: string | null;
   monto_con_iva: number | null;
   etapa_actual: string;
   etapa_label: string;
@@ -1548,8 +1657,11 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
   }
 
   const { data: mondayRows } = await supabase
-    .from("monday_cierres").select("hubspot_id, empresa").in("hubspot_id", abiertos.map((d) => d.hubspot_id));
-  const mapaEmpresa = new Map(((mondayRows as Array<{ hubspot_id: string; empresa: string | null }>) ?? []).map((m) => [m.hubspot_id, m.empresa]));
+    .from("monday_cierres").select("hubspot_id, empresa, correo_cliente, productos, como_llego")
+    .in("hubspot_id", abiertos.map((d) => d.hubspot_id));
+  const mapaMonday = new Map((
+    (mondayRows as Array<{ hubspot_id: string; empresa: string | null; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
+  ).map((m) => [m.hubspot_id, m]));
 
   // Un negocio abierto con fecha de cierre ANTERIOR al mes activo está
   // atrasado, no "por definir" -- sigue siendo trabajo pendiente de este
@@ -1565,10 +1677,14 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
   for (const d of abiertos) {
     const clave = clasificar(d.fecha_cierre);
     const lista = gruposMapa.get(clave) ?? [];
+    const monday = mapaMonday.get(d.hubspot_id);
     lista.push({
       hubspot_id: d.hubspot_id,
       nombre: d.nombre,
-      empresa: mapaEmpresa.get(d.hubspot_id) ?? null,
+      empresa: monday?.empresa ?? null,
+      correo_cliente: monday?.correo_cliente ?? null,
+      productos: monday?.productos ?? null,
+      canal: monday?.como_llego ?? null,
       monto_con_iva: d.monto_con_iva,
       etapa_actual: d.etapa,
       etapa_label: nombreEtapa(d.etapa),
