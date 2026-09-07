@@ -644,7 +644,7 @@ function AccionesPrioritarias({
             {a.deal_nombre ?? "Negocio sin nombre"}
             {a.deal_monto_con_iva != null && <> · <span className="tabular font-medium text-ink">{dinero(a.deal_monto_con_iva)}</span></>}
           </p>
-          {a.correo_cliente && <p className="mt-0.5 truncate text-[11px] text-ink-muted" title={a.correo_cliente}>{a.correo_cliente}</p>}
+          <p className="mt-0.5 truncate text-[11px] text-ink-muted" title={a.correo_cliente ?? undefined}>{a.correo_cliente ?? "Sin correo"}</p>
           <p className="mt-1.5 text-[12px] font-medium text-[#8a3b1f]">
             {a.tipo === "tarea_vencida"
               ? `Atrasada desde ${a.fecha ? new Date(a.fecha).toLocaleDateString("es-MX") : "—"}`

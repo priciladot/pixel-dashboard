@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buscarDeals, buscarDealsCreados, enriquecerConOwners, listarOwners } from "@/lib/ingesta/hubspot";
+import { buscarDeals, buscarDealsAbiertos, buscarDealsCreados, enriquecerConOwners, listarOwners } from "@/lib/ingesta/hubspot";
 import { ingestarDeals } from "@/lib/ingesta/cargar";
 
 export const runtime = "nodejs";
@@ -79,14 +79,22 @@ export async function GET(req: Request) {
     const owners = await listarOwners();
     const corridas = [];
 
-    for (const p of aSincronizar) {
+    // Sin acotar por fecha -- refresca contacto_ids/empresa_id de TODO
+    // negocio abierto, incluyendo los que se arrastran de meses previos y
+    // que buscarDeals/buscarDealsCreados nunca vuelven a tocar por estar
+    // fuera del rango de un periodo. Se trae una sola vez y se mezcla solo
+    // en la primera corrida -- recalcularKpis ya filtra por periodo_id
+    // propio de cada deal, así que no contamina el KPI de otros periodos.
+    const abiertos = await buscarDealsAbiertos();
+
+    for (const [i, p] of aSincronizar.entries()) {
       const [cerrados, creados] = await Promise.all([
         buscarDeals(p.kpi_inicio, p.kpi_fin),
         buscarDealsCreados(p.kpi_inicio, p.kpi_fin),
       ]);
 
       // sanearLote deduplica por hubspot_id: el traslape no cuenta doble.
-      const crudos = enriquecerConOwners([...cerrados, ...creados], owners);
+      const crudos = enriquecerConOwners([...cerrados, ...creados, ...(i === 0 ? abiertos : [])], owners);
 
       const r = await ingestarDeals(db, crudos, {
         tipo: "hubspot_cron",

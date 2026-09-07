@@ -427,12 +427,13 @@ export async function accionesPrioritarias(vendedorId?: string, limite = 10): Pr
   const vencidas = ((tareasData as FilaTarea[]) ?? []).filter((t) => t.fecha != null && t.fecha < hoy);
 
   const dealIds = [...new Set(vencidas.map((t) => t.deal_id_ref))];
-  const [{ data: deals }, { data: mondayRows }] = dealIds.length > 0
+  const [{ data: deals }, { data: mondayRows }, mapaCorreoContacto] = dealIds.length > 0
     ? await Promise.all([
         supabase.from("hubspot_deals").select("hubspot_id, nombre, monto_con_iva").in("hubspot_id", dealIds),
         supabase.from("monday_cierres").select("hubspot_id, empresa, correo_cliente").in("hubspot_id", dealIds),
+        correoDeContactoPorDeal(supabase, dealIds),
       ])
-    : [{ data: [] }, { data: [] }];
+    : [{ data: [] }, { data: [] }, new Map<string, string | null>()];
   const mapaDeals = new Map((deals as Array<{ hubspot_id: string; nombre: string | null; monto_con_iva: number | null }> ?? []).map((d) => [d.hubspot_id, d]));
   const mapaMonday = new Map((mondayRows as Array<{ hubspot_id: string; empresa: string | null; correo_cliente: string | null }> ?? []).map((m) => [m.hubspot_id, m]));
 
@@ -448,10 +449,12 @@ export async function accionesPrioritarias(vendedorId?: string, limite = 10): Pr
       deal_nombre: deal?.nombre ?? null,
       deal_monto_con_iva: deal?.monto_con_iva ?? null,
       empresa: monday?.empresa ?? null,
-      correo_cliente: monday?.correo_cliente ?? null,
+      correo_cliente: mapaCorreoContacto.get(t.deal_id_ref) ?? monday?.correo_cliente ?? null,
     };
   });
 
+  // dealsEstancados() ya resuelve correo_cliente con la misma cascada
+  // (Contacto de HubSpot -> Monday) -- no había razón para descartarlo aquí.
   const accionesEstancados: AccionPrioritaria[] = estancados.map((e) => ({
     tipo: "negocio_estancado",
     hubspot_id: e.hubspot_id,
@@ -461,7 +464,7 @@ export async function accionesPrioritarias(vendedorId?: string, limite = 10): Pr
     deal_nombre: e.nombre,
     deal_monto_con_iva: e.monto_con_iva,
     empresa: e.empresa,
-    correo_cliente: null,
+    correo_cliente: e.correo_cliente,
   }));
 
   return [...accionesTareas, ...accionesEstancados]

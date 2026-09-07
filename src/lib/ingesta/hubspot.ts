@@ -171,6 +171,50 @@ export async function buscarDealsCreados(desde: string, hasta: string): Promise<
   return salida;
 }
 
+/**
+ * TODOS los negocios ABIERTOS en HubSpot (hs_is_closed = false), sin
+ * acotar por fecha de creación ni de cierre -- buscarDeals()/
+ * buscarDealsCreados() solo traen lo que cae en el rango de UN periodo, así
+ * que un negocio abierto que se arrastra de meses anteriores (justo el que
+ * importa para Focos Rojos, Pipeline y Calidad de Datos, que ya son
+ * acumulativos) nunca se vuelve a sincronizar por esa vía y se queda para
+ * siempre con contacto_ids/empresa_id vacíos. Esta función existe para
+ * refrescar esos negocios en cada sincronización, sin importar qué periodo
+ * se haya seleccionado en la UI.
+ */
+export async function buscarDealsAbiertos(): Promise<DealCrudo[]> {
+  const propiedades = [...PROPIEDADES_BASE, ...Object.values(PROPS)];
+  const salida: DealCrudo[] = [];
+  let after: string | undefined;
+
+  do {
+    const cuerpo = {
+      filterGroups: [{
+        filters: [
+          { propertyName: "hs_is_closed", operator: "EQ", value: "false" },
+          ...(process.env.HUBSPOT_PIPELINE_ID && process.env.HUBSPOT_PIPELINE_ID !== "default"
+            ? [{ propertyName: "pipeline", operator: "EQ", value: process.env.HUBSPOT_PIPELINE_ID }]
+            : []),
+        ],
+      }],
+      properties: propiedades,
+      associations: ["contacts", "companies"],
+      limit: 100,
+      ...(after ? { after } : {}),
+    };
+
+    const r = await api<{ results: DealApi[]; paging?: { next?: { after: string } } }>(
+      "/crm/v3/objects/deals/search",
+      { method: "POST", body: JSON.stringify(cuerpo) },
+    );
+
+    salida.push(...r.results.map(aDealCrudo));
+    after = r.paging?.next?.after;
+  } while (after);
+
+  return salida;
+}
+
 function aDealCrudo(d: DealApi): DealCrudo {
   const p = d.properties;
   return {

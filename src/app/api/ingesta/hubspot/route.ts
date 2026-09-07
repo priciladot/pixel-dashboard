@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buscarDeals, buscarDealsCreados, enriquecerConOwners, listarOwners } from "@/lib/ingesta/hubspot";
+import { buscarDeals, buscarDealsAbiertos, buscarDealsCreados, enriquecerConOwners, listarOwners } from "@/lib/ingesta/hubspot";
 import { ingestarDeals } from "@/lib/ingesta/cargar";
 
 export const runtime = "nodejs";
@@ -37,13 +37,17 @@ export async function POST(req: Request) {
 
   try {
     const owners = await listarOwners();
-    const [cerrados, creados] = await Promise.all([
+    const [cerrados, creados, abiertos] = await Promise.all([
       buscarDeals(desde, hasta),
       buscarDealsCreados(desde, hasta),
+      // Sin acotar por fecha -- refresca contacto_ids/empresa_id de TODO
+      // negocio abierto, incluyendo los que se arrastran de meses previos y
+      // que cerrados/creados nunca vuelven a tocar por estar fuera de rango.
+      buscarDealsAbiertos(),
     ]);
 
     // sanearLote deduplica por hubspot_id, así que el traslape no cuenta doble.
-    const crudos = enriquecerConOwners([...cerrados, ...creados], owners);
+    const crudos = enriquecerConOwners([...cerrados, ...creados, ...abiertos], owners);
 
     const resultado = await ingestarDeals(db, crudos, {
       tipo: "hubspot_api",
