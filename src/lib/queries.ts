@@ -181,9 +181,11 @@ export async function dealsPorRevisar(vendedorId?: string): Promise<DealPorRevis
   const filas = (data as Array<Omit<DealPorRevisar, "empresa" | "correo_cliente" | "productos" | "canal">>) ?? [];
   if (filas.length === 0) return [];
 
-  const { data: mondayRows } = await supabase
-    .from("monday_cierres").select("hubspot_id, empresa, correo_cliente, productos, como_llego")
-    .in("hubspot_id", filas.map((f) => f.hubspot_id));
+  const [{ data: mondayRows }, mapaCorreoContacto] = await Promise.all([
+    supabase.from("monday_cierres").select("hubspot_id, empresa, correo_cliente, productos, como_llego")
+      .in("hubspot_id", filas.map((f) => f.hubspot_id)),
+    correoDeContactoPorDeal(supabase, filas.map((f) => f.hubspot_id)),
+  ]);
   const mapaMonday = new Map((
     (mondayRows as Array<{ hubspot_id: string; empresa: string | null; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
   ).map((m) => [m.hubspot_id, m]));
@@ -193,7 +195,7 @@ export async function dealsPorRevisar(vendedorId?: string): Promise<DealPorRevis
     return {
       ...f,
       empresa: monday?.empresa ?? null,
-      correo_cliente: monday?.correo_cliente ?? null,
+      correo_cliente: mapaCorreoContacto.get(f.hubspot_id) ?? monday?.correo_cliente ?? null,
       productos: monday?.productos ?? null,
       canal: monday?.como_llego ?? null,
     };
@@ -273,6 +275,39 @@ export async function etapaActualDeals(periodoId: string, vendedorId?: string): 
   return (data as FilaEtapaActual[]) ?? [];
 }
 
+/**
+ * Email del PRIMER contacto asociado a cada negocio
+ * (hubspot_deals.contacto_ids), resuelto contra hubspot_contacts --
+ * HubSpot no expone el correo como propiedad del Deal, solo como
+ * asociación a Contacto (ingestado aparte, ver escribirContactos() en
+ * cargar.ts). Devuelve un mapa hubspot_id -> email; los negocios sin
+ * ningún contacto asociado, o cuyo contacto no tiene email capturado,
+ * simplemente no aparecen en el mapa.
+ */
+async function correoDeContactoPorDeal(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  hubspotIds: string[],
+): Promise<Map<string, string | null>> {
+  if (hubspotIds.length === 0) return new Map();
+
+  const { data: dealsConContacto } = await supabase
+    .from("hubspot_deals").select("hubspot_id, contacto_ids").in("hubspot_id", hubspotIds);
+  const filas = (dealsConContacto as Array<{ hubspot_id: string; contacto_ids: string[] }>) ?? [];
+
+  const idsContacto = [...new Set(filas.flatMap((f) => f.contacto_ids ?? []))];
+  if (idsContacto.length === 0) return new Map();
+
+  const { data: contactos } = await supabase.from("hubspot_contacts").select("hubspot_id, email").in("hubspot_id", idsContacto);
+  const mapaEmail = new Map(((contactos as Array<{ hubspot_id: string; email: string | null }>) ?? []).map((c) => [c.hubspot_id, c.email]));
+
+  const porDeal = new Map<string, string | null>();
+  for (const f of filas) {
+    const primerContacto = (f.contacto_ids ?? [])[0];
+    if (primerContacto) porDeal.set(f.hubspot_id, mapaEmail.get(primerContacto) ?? null);
+  }
+  return porDeal;
+}
+
 export interface DealEstancado {
   hubspot_id: string;
   nombre: string | null;
@@ -324,11 +359,14 @@ export async function dealsEstancados(vendedorId?: string, diasUmbral = 7): Prom
 
   if (candidatos.length === 0) return [];
 
-  // Correo/producto/canal -- Monday casi nunca tiene fila para un negocio
-  // TODAVÍA abierto (solo registra tratos ganados), pero se cruza por si acaso.
-  const { data: mondayRows } = await supabase
-    .from("monday_cierres").select("hubspot_id, correo_cliente, productos, como_llego")
-    .in("hubspot_id", candidatos.map((f) => f.hubspot_id));
+  // Producto/canal solo existen en Monday (casi nunca tiene fila para un
+  // negocio TODAVÍA abierto, pero se cruza por si acaso). El correo
+  // prioriza el Contacto real de HubSpot -- Monday es el respaldo.
+  const [{ data: mondayRows }, mapaCorreoContacto] = await Promise.all([
+    supabase.from("monday_cierres").select("hubspot_id, correo_cliente, productos, como_llego")
+      .in("hubspot_id", candidatos.map((f) => f.hubspot_id)),
+    correoDeContactoPorDeal(supabase, candidatos.map((f) => f.hubspot_id)),
+  ]);
   const mapaMonday = new Map((
     (mondayRows as Array<{ hubspot_id: string; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
   ).map((m) => [m.hubspot_id, m]));
@@ -337,7 +375,7 @@ export async function dealsEstancados(vendedorId?: string, diasUmbral = 7): Prom
     const monday = mapaMonday.get(f.hubspot_id);
     return {
       ...f,
-      correo_cliente: monday?.correo_cliente ?? null,
+      correo_cliente: mapaCorreoContacto.get(f.hubspot_id) ?? monday?.correo_cliente ?? null,
       productos: monday?.productos ?? null,
       canal: monday?.como_llego ?? null,
     };
@@ -761,11 +799,14 @@ async function sinAtencion(
 
   if (candidatos.length === 0) return [];
 
-  // Correo/producto -- Monday casi nunca tiene fila para un negocio TODAVÍA
-  // abierto (solo registra tratos ganados), pero se cruza por si acaso.
-  const { data: mondayRows } = await supabase
-    .from("monday_cierres").select("hubspot_id, correo_cliente, productos, como_llego")
-    .in("hubspot_id", candidatos.map((f) => f.hubspot_id));
+  // Producto/canal solo existen en Monday (casi nunca tiene fila para un
+  // negocio TODAVÍA abierto, pero se cruza por si acaso). El correo
+  // prioriza el Contacto real de HubSpot -- Monday es el respaldo.
+  const [{ data: mondayRows }, mapaCorreoContacto] = await Promise.all([
+    supabase.from("monday_cierres").select("hubspot_id, correo_cliente, productos, como_llego")
+      .in("hubspot_id", candidatos.map((f) => f.hubspot_id)),
+    correoDeContactoPorDeal(supabase, candidatos.map((f) => f.hubspot_id)),
+  ]);
   const mapaMonday = new Map((
     (mondayRows as Array<{ hubspot_id: string; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
   ).map((m) => [m.hubspot_id, m]));
@@ -783,7 +824,7 @@ async function sinAtencion(
       monto_con_iva: f.monto_con_iva,
       mensaje: `${vendedor}: "${negocio}" ${diasTexto} ningún seguimiento o nota de atención registrada.`,
       empresa: f.empresa,
-      correo_cliente: monday?.correo_cliente ?? null,
+      correo_cliente: mapaCorreoContacto.get(f.hubspot_id) ?? monday?.correo_cliente ?? null,
       productos: monday?.productos ?? null,
       canal: monday?.como_llego ?? null,
     };
@@ -1656,9 +1697,11 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
     return { probabilidadDisponible: probabilidad.size > 0, grupos: [] };
   }
 
-  const { data: mondayRows } = await supabase
-    .from("monday_cierres").select("hubspot_id, empresa, correo_cliente, productos, como_llego")
-    .in("hubspot_id", abiertos.map((d) => d.hubspot_id));
+  const [{ data: mondayRows }, mapaCorreoContacto] = await Promise.all([
+    supabase.from("monday_cierres").select("hubspot_id, empresa, correo_cliente, productos, como_llego")
+      .in("hubspot_id", abiertos.map((d) => d.hubspot_id)),
+    correoDeContactoPorDeal(supabase, abiertos.map((d) => d.hubspot_id)),
+  ]);
   const mapaMonday = new Map((
     (mondayRows as Array<{ hubspot_id: string; empresa: string | null; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
   ).map((m) => [m.hubspot_id, m]));
@@ -1682,7 +1725,7 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
       hubspot_id: d.hubspot_id,
       nombre: d.nombre,
       empresa: monday?.empresa ?? null,
-      correo_cliente: monday?.correo_cliente ?? null,
+      correo_cliente: mapaCorreoContacto.get(d.hubspot_id) ?? monday?.correo_cliente ?? null,
       productos: monday?.productos ?? null,
       canal: monday?.como_llego ?? null,
       monto_con_iva: d.monto_con_iva,

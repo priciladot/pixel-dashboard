@@ -312,7 +312,56 @@ export async function buscarTodosLosEngagements(desde: string, hasta: string): P
 }
 
 /* ------------------------------------------------------------------ */
-/* 3. Leads — objeto nuevo, puede no existir en el portal              */
+/* 3. Contactos — solo el email, para completar Foco Rojos/Pipeline    */
+/*    cuando el negocio no tiene nada capturado todavía en Monday.     */
+/* ------------------------------------------------------------------ */
+
+export interface ContactoCrudo {
+  hubspot_id: string;
+  email: string | null;
+  raw: unknown;
+}
+
+interface ContactoApi {
+  id: string;
+  properties: Record<string, string | null>;
+}
+
+/**
+ * Trae el email de contactos por id, en lotes de 100 (límite real de
+ * batch/read). HubSpot no expone el email como propiedad del Deal, solo
+ * como asociación a Contacto -- de ahí que haga falta este segundo objeto.
+ * Si el token no tiene crm.objects.contacts.read, se aísla igual que los
+ * demás tipos (no tumba el resto de la ingesta de deals).
+ */
+export async function buscarContactosPorId(ids: string[]): Promise<{ contactos: ContactoCrudo[]; sinPermiso: boolean }> {
+  const unicos = [...new Set(ids)].filter(Boolean);
+  if (unicos.length === 0) return { contactos: [], sinPermiso: false };
+
+  const lotes: string[][] = [];
+  for (let i = 0; i < unicos.length; i += 100) lotes.push(unicos.slice(i, i + 100));
+
+  try {
+    const resultados = await Promise.all(lotes.map((lote) =>
+      api<{ results: ContactoApi[] }>("/crm/v3/objects/contacts/batch/read", {
+        method: "POST",
+        body: JSON.stringify({ properties: ["email"], inputs: lote.map((id) => ({ id })) }),
+      }),
+    ));
+    const contactos = resultados.flatMap((r) => r.results.map((c) => ({
+      hubspot_id: c.id,
+      email: c.properties.email ?? null,
+      raw: c,
+    })));
+    return { contactos, sinPermiso: false };
+  } catch (e) {
+    if (e instanceof SinPermisoError) return { contactos: [], sinPermiso: true };
+    throw e;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. Leads — objeto nuevo, puede no existir en el portal              */
 /* ------------------------------------------------------------------ */
 
 export interface LeadCrudo {

@@ -14,7 +14,7 @@ import {
   type DealCrudo, type Diccionarios, type DealSaneado,
 } from "./sanitizar";
 import { resolverVendedor, type CierreCrudo } from "./monday";
-import type { CambioEtapa, EngagementCrudo, LeadCrudo, TipoEngagement } from "./hubspot-analitica";
+import { buscarContactosPorId, type CambioEtapa, type EngagementCrudo, type LeadCrudo, type TipoEngagement } from "./hubspot-analitica";
 
 export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionarios> {
   const [perfiles, alias, mapaOwners, periodos, catalogo] = await Promise.all([
@@ -99,6 +99,7 @@ export async function ingestarDeals(
 
     if (!opciones.simulacion) {
       await escribirDeals(db, deals, ingestaId);
+      await escribirContactos(db, deals, ingestaId);
       await recalcularKpis(db, deals, ingestaId, opciones.periodoId);
     }
 
@@ -180,6 +181,36 @@ async function escribirDeals(db: SupabaseClient, deals: DealSaneado[], ingestaId
       .from("hubspot_deals")
       .upsert(filas.slice(i, i + 500), { onConflict: "hubspot_id" });
     if (error) throw new Error(`Error al escribir deals: ${error.message}`);
+  }
+}
+
+/**
+ * Email de los Contactos asociados a estos negocios (hubspot_deals.contacto_ids)
+ * -- HubSpot no expone el correo como propiedad del Deal, solo como
+ * asociación a Contacto, así que hace falta esta segunda llamada a la API.
+ * No revienta la ingesta de deals si el token no tiene el scope: se
+ * reporta silenciosamente vacío, igual que los demás objetos opcionales.
+ */
+async function escribirContactos(db: SupabaseClient, deals: DealSaneado[], ingestaId: number) {
+  const idsContacto = [...new Set(deals.flatMap((d) => d.contacto_ids))];
+  if (idsContacto.length === 0) return;
+
+  const { contactos } = await buscarContactosPorId(idsContacto);
+  if (contactos.length === 0) return;
+
+  const filas = contactos.map((c) => ({
+    hubspot_id: c.hubspot_id,
+    email: c.email,
+    ingesta_id: ingestaId,
+    raw: c.raw,
+    actualizado_en: new Date().toISOString(),
+  }));
+
+  for (let i = 0; i < filas.length; i += 500) {
+    const { error } = await db
+      .from("hubspot_contacts")
+      .upsert(filas.slice(i, i + 500), { onConflict: "hubspot_id" });
+    if (error) throw new Error(`Error al escribir contactos: ${error.message}`);
   }
 }
 
