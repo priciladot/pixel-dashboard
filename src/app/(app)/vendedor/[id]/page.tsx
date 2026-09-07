@@ -16,7 +16,7 @@ export default async function VistaVendedor({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ periodo?: string; ventana?: string }>;
+  searchParams: Promise<{ periodo?: string; ventana?: string; vista?: string }>;
 }) {
   const sesion = await requiereSesion();
   const { id } = await params;
@@ -64,7 +64,7 @@ export default async function VistaVendedor({
           )}
         </div>
         <Suspense fallback={null}>
-          <Filtros periodos={lista} />
+          <Filtros periodos={lista} mostrarVistaTiempo />
         </Suspense>
       </div>
 
@@ -74,6 +74,7 @@ export default async function VistaVendedor({
       <TorreDeControl
         periodoIdParam={sp.periodo}
         ventanaParam={sp.ventana}
+        vistaParam={sp.vista}
         vendedorIdForzado={persona.id}
         mostrarFiltroVendedor={false}
         mostrarEncabezado={false}
