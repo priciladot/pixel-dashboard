@@ -1474,8 +1474,8 @@ function ProyeccionPipelineTarjeta({ proyeccion }: { proyeccion: ProyeccionPipel
               {g.deals.length === 0 ? (
                 <p className="mt-3 text-[12px] text-ink-soft">Sin negocios en este grupo.</p>
               ) : (
-                <ul className="mt-3 space-y-2 border-t border-line/70 pt-2.5">
-                  {g.deals.slice(0, 5).map((d) => (
+                <ul className="mt-3 max-h-[500px] space-y-2 overflow-y-auto border-t border-line/70 pt-2.5">
+                  {g.deals.map((d) => (
                     <li key={d.hubspot_id} className="text-[12px]">
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate font-medium text-ink" title={d.nombre ?? d.hubspot_id}>{d.nombre ?? `#${d.hubspot_id}`}</span>
@@ -1497,9 +1497,6 @@ function ProyeccionPipelineTarjeta({ proyeccion }: { proyeccion: ProyeccionPipel
                       </span>
                     </li>
                   ))}
-                  {g.deals.length > 5 && (
-                    <li className="text-[11px] text-ink-muted">y {g.deals.length - 5} más…</li>
-                  )}
                 </ul>
               )}
             </div>
