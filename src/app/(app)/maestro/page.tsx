@@ -140,9 +140,7 @@ export default async function Maestro({
         </Suspense>
       </div>
 
-      {/* ================================================================
-          ACTO 1 — Diagnóstico y coaching
-          ================================================================ */}
+      <ActoHeader numero={1} color="#2a78d6" titulo="Diagnóstico y coaching" />
 
       {/* Resumen ejecutivo -------------------------------------------------- */}
       <Seccion
@@ -257,9 +255,7 @@ export default async function Maestro({
         )}
       </Seccion>
 
-      {/* ================================================================
-          ACTO 2 — Mi plan y focos rojos (acción diaria)
-          ================================================================ */}
+      <ActoHeader numero={2} color="#1baf7a" titulo="Mi plan y focos rojos" subtitulo="Acción diaria" />
 
       {seleccionado && disciplina && (
         <Seccion
@@ -322,9 +318,7 @@ export default async function Maestro({
         <AlertasHigiene alertas={higiene} />
       </Seccion>
 
-      {/* ================================================================
-          ACTO 3 — Análisis de fugas y salud del pipeline (inteligencia)
-          ================================================================ */}
+      <ActoHeader numero={3} color="#eda100" titulo="Análisis de fugas y salud del pipeline" subtitulo="Inteligencia" />
 
       {/* Origen y canal de venta (Monday) -----------------------------------
           A propósito solo mira los negocios que SÍ están en Monday -- esta
@@ -390,9 +384,7 @@ export default async function Maestro({
         </div>
       </Seccion>
 
-      {/* ================================================================
-          ACTO 4 — Detalle operativo (transparencia)
-          ================================================================ */}
+      <ActoHeader numero={4} color="#4a3aa7" titulo="Detalle operativo" subtitulo="Transparencia" />
 
       {/* Ventas y productos cerrados ----------------------------------------- */}
       <Seccion
@@ -432,7 +424,7 @@ export default async function Maestro({
                 </thead>
                 <tbody>
                   {revisar.slice(0, 25).map((d) => (
-                    <tr key={d.hubspot_id} className="border-b border-line/70 last:border-0">
+                    <tr key={d.hubspot_id} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
                       <td className="px-4 py-2.5 text-ink">{d.nombre ?? `#${d.hubspot_id}`}</td>
                       <td className="px-4 py-2.5 tabular text-ink-soft">{dinero(d.monto_sin_iva)}</td>
                       <td className="px-4 py-2.5">
@@ -532,7 +524,7 @@ function NegociosEstancados({
           </thead>
           <tbody>
             {filas.slice(0, 15).map((f) => (
-              <tr key={f.hubspot_id} className="border-b border-line/70 last:border-0">
+              <tr key={f.hubspot_id} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
                 {mostrarVendedor && (
                   <td className="px-4 py-2.5 text-ink-soft">{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</td>
                 )}
@@ -724,14 +716,26 @@ function accionBandera(flag: string, d: DealPorRevisar): string {
  * vendedor ahí -- si `empresa` coincide con alguien del equipo, o viene
  * vacía, se usa `respaldo` (el nombre del deal en HubSpot, o "—").
  */
+function normalizarNombre(s: string): string {
+  return s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
 function empresaSegura(empresa: string | null | undefined, nombresVendedores: Set<string>, respaldo: string): string {
   const limpio = empresa?.trim();
-  if (limpio && !nombresVendedores.has(limpio.toLowerCase())) return limpio;
-  return respaldo || "—";
+  if (!limpio) return respaldo || "—";
+  const normalizado = normalizarNombre(limpio);
+  // Coincidencia exacta ("Gaby") o el nombre de un vendedor metido en un
+  // texto más largo ("Venta de Pris", "Pris - referido") -- cualquiera de
+  // los dos casos es un error de captura en Monday, no una empresa real.
+  const esNombreDeVendedor = [...nombresVendedores].some(
+    (n) => normalizado === n || normalizado.includes(n),
+  );
+  if (esNombreDeVendedor) return respaldo || "—";
+  return limpio;
 }
 
 function nombresDeVendedores(mapaVendedores: Map<string, string>): Set<string> {
-  return new Set([...mapaVendedores.values()].map((n) => n.toLowerCase()));
+  return new Set([...mapaVendedores.values()].map(normalizarNombre));
 }
 
 function VentasProductosTabla({
@@ -762,7 +766,7 @@ function VentasProductosTabla({
           </thead>
           <tbody>
             {filas.map((f) => (
-              <tr key={f.hubspot_id} className="border-b border-line/70 last:border-0">
+              <tr key={f.hubspot_id} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
                 {mostrarVendedor && (
                   <td className="px-4 py-2.5 text-ink">{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</td>
                 )}
@@ -886,6 +890,24 @@ function ProyeccionSemana({
         </>
       )}
     </Card>
+  );
+}
+
+/** Banner visual de cada Acto -- pill de color + título, para que la narrativa de la página se note en pantalla, no solo en el código. */
+function ActoHeader({ numero, color, titulo, subtitulo }: { numero: number; color: string; titulo: string; subtitulo?: string }) {
+  return (
+    <div className="mb-4 mt-2 flex items-center gap-2.5">
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide"
+        style={{ color, backgroundColor: `${color}1a` }}
+      >
+        Acto {numero}
+      </span>
+      <h2 className="text-[16px] font-bold tracking-tight text-ink">
+        {titulo}
+        {subtitulo && <span className="ml-1.5 text-[13px] font-normal text-ink-muted">— {subtitulo}</span>}
+      </h2>
+    </div>
   );
 }
 
@@ -1069,7 +1091,7 @@ function EmbudoDetallado({ filas }: { filas: PasoEmbudo[] }) {
           </thead>
           <tbody>
             {filas.map((f) => (
-              <tr key={f.etapa} className="border-b border-line/70 last:border-0">
+              <tr key={f.etapa} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
                 <td className="px-4 py-2.5 text-ink">{f.label}</td>
                 <td className="px-4 py-2.5 tabular text-ink-soft">{num(f.deals)}</td>
                 <td className="px-4 py-2.5 tabular text-ink-soft">{pct(f.pctConversionAcumulada)}</td>
@@ -1220,19 +1242,25 @@ function CoachComercial({ acciones }: { acciones: AccionCoach[] }) {
   return (
     <div className="space-y-3">
       {retoSemana ? (
-        <div className="rounded-card border border-line bg-surface-sunk px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Reto de la semana</p>
+        <div className="rounded-card border px-4 py-3 shadow-sm transition-shadow duration-200 hover:shadow-md" style={{ backgroundColor: "#fab2191a", borderColor: "#fab21940" }}>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a6100]">🔥 Reto de la semana</p>
           <p className="mt-1 text-[13px] font-medium text-ink">{retoSemana.mensaje}</p>
         </div>
       ) : (
-        <p className="text-[13px] text-ink-soft">
-          Sin focos de atención este mes -- ningún indicador crítico, o todavía no hay negocios registrados en el periodo.
-        </p>
+        <div className="rounded-card border px-4 py-3" style={{ backgroundColor: "#0ca30c1a", borderColor: "#0ca30c40" }}>
+          <p className="text-[13px] text-ink-soft">
+            ✅ Sin focos de atención este mes -- ningún indicador crítico, o todavía no hay negocios registrados en el periodo.
+          </p>
+        </div>
       )}
       {resto.length > 0 && (
         <div className="grid gap-3 md:grid-cols-2">
           {resto.slice(0, 2).map((a) => (
-            <div key={a.categoria} className="rounded-card border border-line bg-surface px-4 py-3">
+            <div
+              key={a.categoria}
+              className="rounded-card border px-4 py-3 shadow-sm transition-shadow duration-200 hover:shadow-md"
+              style={{ backgroundColor: `${COLOR_CATEGORIA_COACH[a.categoria]}14`, borderColor: `${COLOR_CATEGORIA_COACH[a.categoria]}33` }}
+            >
               <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLOR_CATEGORIA_COACH[a.categoria] }}>
                 {ETIQUETA_CATEGORIA_COACH[a.categoria]}
               </p>
@@ -1242,8 +1270,8 @@ function CoachComercial({ acciones }: { acciones: AccionCoach[] }) {
           ))}
         </div>
       )}
-      <div className="rounded-card border border-line bg-surface px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#2a78d6]">Táctica comercial de la semana</p>
+      <div className="rounded-card border px-4 py-3 shadow-sm transition-shadow duration-200 hover:shadow-md" style={{ backgroundColor: "#2a78d614", borderColor: "#2a78d640" }}>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#2a78d6]">💬 Táctica comercial de la semana</p>
         <p className="mt-1 text-[13px] font-medium text-ink">{tactica.titulo}</p>
         <p className="mt-1 text-[12px] text-ink-soft">{tactica.texto}</p>
       </div>
@@ -1262,7 +1290,10 @@ function DisciplinaComercial({ disciplina }: { disciplina: TDisciplinaComercial 
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2.5">
-        <div className="rounded-full border border-line bg-surface-sunk px-3 py-1 text-[12px] font-medium text-ink">
+        <div
+          className={`rounded-full border px-3 py-1 text-[12px] font-medium ${rachaSemanas > 0 ? "" : "border-line bg-surface-sunk text-ink"}`}
+          style={rachaSemanas > 0 ? { color: "#0ca30c", backgroundColor: "#0ca30c1a", borderColor: "#0ca30c40" } : undefined}
+        >
           🔥 Racha de Disciplina: {rachaSemanas} semana{rachaSemanas === 1 ? "" : "s"} consecutiva{rachaSemanas === 1 ? "" : "s"}
         </div>
         {alerta && (
@@ -1288,7 +1319,7 @@ function DisciplinaComercial({ disciplina }: { disciplina: TDisciplinaComercial 
             </thead>
             <tbody>
               {semanas.map((s) => (
-                <tr key={s.semana} className="border-b border-line/70 last:border-0">
+                <tr key={s.semana} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
                   <td className="px-4 py-2.5 text-ink">
                     {s.etiqueta}
                     <span className={`ml-1.5 text-[10px] font-medium ${s.esSemanaActual ? "text-serie-1" : "text-ink-muted"}`}>

@@ -23,7 +23,7 @@ const config: Config = {
       fontFamily: {
         sans: ["system-ui", "-apple-system", "Segoe UI", "sans-serif"],
       },
-      borderRadius: { card: "16px" },
+      borderRadius: { card: "20px" },
     },
   },
   plugins: [],
