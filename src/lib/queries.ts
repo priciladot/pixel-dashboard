@@ -793,26 +793,52 @@ async function resolverPeriodoIds(
   return ids.length > 0 ? ids : [periodoId];
 }
 
+/**
+ * Traduce periodoIds (1 mes o los 3 de un trimestre) a un rango de fechas
+ * real, usando la ventana kpi_4_semanas -- la misma que usa periodo_de() al
+ * asignarle periodo_id a un deal en la ingesta, para que "estar en el
+ * periodo" signifique lo mismo para deals que para engagements.
+ */
+async function resolverRangoFechas(
+  supabase: Awaited<ReturnType<typeof createClient>>, periodoIds: string[],
+): Promise<{ inicio: string; fin: string } | null> {
+  const { data } = await supabase.from("periodos").select("kpi_inicio, kpi_fin").in("id", periodoIds);
+  const filas = (data as Array<{ kpi_inicio: string; kpi_fin: string }>) ?? [];
+  if (filas.length === 0) return null;
+  return {
+    inicio: filas.reduce((min, f) => (f.kpi_inicio < min ? f.kpi_inicio : min), filas[0].kpi_inicio),
+    fin: filas.reduce((max, f) => (f.kpi_fin > max ? f.kpi_fin : max), filas[0].kpi_fin),
+  };
+}
+
 export interface ActividadPorTipo { tipo: string; total: number }
 
-/** Actividades registradas en HubSpot por tipo, para los deals del/los periodo(s) elegido(s). */
+/**
+ * Actividades de HubSpot por tipo, del/los periodo(s) elegido(s).
+ * Filtra `hubspot_engagements` directo por vendedor_id (el owner real de la
+ * actividad) y por fecha -- NO por deal_id_ref. Filtrar solo por deal
+ * descartaba toda actividad registrada a nivel de contacto o empresa en
+ * HubSpot, que nunca llega a tener deal_id_ref: por eso vendedores con
+ * cientos de interacciones reales mostraban 0 aquí.
+ */
 export async function actividadesPorTipo(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<ActividadPorTipo[]> {
   const supabase = await createClient();
   const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+  const rango = await resolverRangoFechas(supabase, periodoIds);
+  if (!rango) return [];
 
-  let qDeals = supabase.from("hubspot_deals").select("hubspot_id").in("periodo_id", periodoIds);
-  if (vendedorId) qDeals = qDeals.eq("vendedor_id", vendedorId);
-  const { data: deals } = await qDeals.limit(2000);
-  const dealIds = ((deals as Array<{ hubspot_id: string }>) ?? []).map((d) => d.hubspot_id);
-  if (dealIds.length === 0) return [];
+  let q = supabase.from("hubspot_engagements").select("tipo")
+    .gte("fecha", `${rango.inicio}T00:00:00`).lte("fecha", `${rango.fin}T23:59:59`);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(20_000);
+  const filas = (data as Array<{ tipo: string }>) ?? [];
 
-  const filas = await porLotes(dealIds, 200, async (lote) => {
-    const { data } = await supabase.from("hubspot_engagements").select("tipo").in("deal_id_ref", lote).limit(5000);
-    return (data as Array<{ tipo: string }>) ?? [];
-  });
   const conteo = new Map<string, number>();
   for (const r of filas) conteo.set(r.tipo, (conteo.get(r.tipo) ?? 0) + 1);
 
+  // Los tipos se guardan en minúscula en hubspot_engagements.tipo (check
+  // constraint de la migración 008/009) -- HubSpot los expone en mayúscula
+  // (NOTE/CALL/TASK/MEETING/EMAIL) pero la ingesta ya los normaliza.
   const ETIQUETA: Record<string, string> = { call: "Llamada", email: "Correo enviado", meeting: "Reunión", note: "Nota", task: "Tarea" };
   return Object.entries(ETIQUETA)
     .map(([tipo, etiqueta]) => ({ tipo: etiqueta, total: conteo.get(tipo) ?? 0 }))
@@ -825,22 +851,18 @@ export interface TareasPorEstado {
   sin_iniciar: number;
 }
 
-/** Tareas de HubSpot terminadas vs. sin iniciar, por vendedor, para los deals del/los periodo(s). */
+/** Tareas de HubSpot terminadas vs. sin iniciar, por vendedor, del/los periodo(s). Mismo fix que actividadesPorTipo: por vendedor_id + fecha, no por deal_id_ref. */
 export async function tareasPorEstado(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<TareasPorEstado[]> {
   const supabase = await createClient();
   const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+  const rango = await resolverRangoFechas(supabase, periodoIds);
+  if (!rango) return [];
 
-  let qDeals = supabase.from("hubspot_deals").select("hubspot_id").in("periodo_id", periodoIds);
-  if (vendedorId) qDeals = qDeals.eq("vendedor_id", vendedorId);
-  const { data: deals } = await qDeals.limit(2000);
-  const dealIds = ((deals as Array<{ hubspot_id: string }>) ?? []).map((d) => d.hubspot_id);
-  if (dealIds.length === 0) return [];
-
-  const filas = await porLotes(dealIds, 200, async (lote) => {
-    const { data } = await supabase.from("hubspot_engagements")
-      .select("vendedor_id, estado").eq("tipo", "task").in("deal_id_ref", lote).limit(5000);
-    return (data as Array<{ vendedor_id: string | null; estado: string | null }>) ?? [];
-  });
+  let q = supabase.from("hubspot_engagements").select("vendedor_id, estado").eq("tipo", "task")
+    .gte("fecha", `${rango.inicio}T00:00:00`).lte("fecha", `${rango.fin}T23:59:59`);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(20_000);
+  const filas = (data as Array<{ vendedor_id: string | null; estado: string | null }>) ?? [];
 
   const mapa = new Map<string | null, { completadas: number; sin_iniciar: number }>();
   for (const r of filas) {
