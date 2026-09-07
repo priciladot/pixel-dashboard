@@ -1,16 +1,14 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { esDireccion, requiereSesion } from "@/lib/auth";
-import {
-  benchmarks, contextoMercado, evaluacionDe, historicoDe, kpiDe, perfilPorId, periodos,
-} from "@/lib/queries";
-import { Card, CalidadBadge, KpiCard, Seccion, SemaforoBadge, Vacio } from "@/components/ui";
+import { benchmarks, contextoMercado, evaluacionDe, historicoDe, kpiDe, perfilPorId, periodos } from "@/lib/queries";
+import { Card, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { Brecha } from "@/components/Brecha";
 import { Acciones } from "@/components/Acciones";
 import { Historico } from "@/components/Historico";
-import { MezclaCartera } from "@/components/MezclaCartera";
-import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
+import { TorreDeControl } from "@/components/TorreDeControl";
+import { formatearRangoFechas } from "@/lib/format";
 import type { Ventana } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -19,14 +17,17 @@ export default async function VistaVendedor({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ periodo?: string; ventana?: string }>;
+  searchParams: Promise<{ periodo?: string; ventana?: string; vista?: string }>;
 }) {
   const sesion = await requiereSesion();
   const { id } = await params;
   const sp = await searchParams;
 
   // El RLS ya impide leer el perfil de alguien más; si esto viene vacío es
-  // porque el usuario no tiene derecho a verlo.
+  // porque el usuario no tiene derecho a verlo. Este mismo candado (RLS,
+  // no la UI) es lo que impide que la Torre de Control de abajo muestre
+  // datos de otro vendedor aunque alguien manipule la URL: vendedorIdForzado
+  // siempre es persona.id, nunca un parámetro que el usuario controle.
   const persona = await perfilPorId(id);
   if (!persona) notFound();
 
@@ -38,16 +39,13 @@ export default async function VistaVendedor({
   const ventana: Ventana = sp.ventana === "calendario" ? "calendario" : "kpi_4_semanas";
   const periodo = lista.find((p) => p.id === periodoId)!;
 
-  const [kpi, hist, evaluacion, estandares, contexto] = await Promise.all([
+  const [kpi, evaluacion, estandares, contexto, hist] = await Promise.all([
     kpiDe(persona.id, periodoId, ventana),
-    historicoDe(persona.id, ventana),
     evaluacionDe(persona.id, periodoId),
     benchmarks(),
     contextoMercado(periodoId),
+    historicoDe(persona.id, ventana),
   ]);
-
-  const faltante =
-    kpi?.objetivo_total != null ? Math.max(0, kpi.objetivo_total - kpi.venta_total_iva) : null;
 
   return (
     <>
@@ -56,8 +54,6 @@ export default async function VistaVendedor({
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-[20px] font-semibold tracking-tight text-ink">{persona.nombre_completo}</h1>
-            {kpi && <SemaforoBadge estado={kpi.semaforo} />}
-            {kpi && <CalidadBadge calidad={kpi.calidad} />}
           </div>
           <p className="mt-0.5 text-[13px] text-ink-soft">
             {persona.puesto ?? "Equipo comercial"} · {periodo.etiqueta} · Evaluando ventas cerradas del{" "}
@@ -71,99 +67,29 @@ export default async function VistaVendedor({
           )}
         </div>
         <Suspense fallback={null}>
-          <Filtros periodos={lista} />
+          <Filtros periodos={lista} mostrarVistaTiempo />
         </Suspense>
       </div>
 
-      {!kpi ? (
-        <Vacio
-          titulo="Sin métricas cargadas para este periodo"
-          detalle="En cuanto se cargue el reporte del mes o se corra la ingesta de HubSpot, aparecerán aquí."
-        />
-      ) : (
-        <>
-          {/* Objetivos de venta ------------------------------------------- */}
-          <Seccion titulo="Objetivos de venta" descripcion="Cifras con IVA, tomadas del semáforo comercial.">
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <KpiCard etiqueta="Venta del periodo" valor={dineroCorto(kpi.venta_total_iva)} apoyo={dinero(kpi.venta_total_iva)} />
-              <KpiCard
-                etiqueta="Objetivo"
-                valor={dineroCorto(kpi.objetivo_total)}
-                apoyo={kpi.objetivo_confirmado === false ? "Reconstruido — por confirmar" : dinero(kpi.objetivo_total)}
-              />
-              <KpiCard
-                etiqueta="Cumplimiento"
-                valor={pct(kpi.cumplimiento_pct)}
-                apoyo={faltante ? `Faltan ${dinero(faltante)}` : "Objetivo alcanzado"}
-                lectura={
-                  kpi.cumplimiento_pct == null ? "Sin objetivo capturado"
-                    : kpi.cumplimiento_pct >= 100 ? "En objetivo"
-                    : kpi.cumplimiento_pct >= 80 ? "Cerca del objetivo"
-                    : kpi.cumplimiento_pct >= 50 ? "Rezagado frente al objetivo"
-                    : "Resultado crítico frente al objetivo"
-                }
-                estado={kpi.cumplimiento_pct != null && kpi.cumplimiento_pct >= 100 ? "cumple" : "debajo"}
-              />
-              <KpiCard
-                etiqueta="Venta sin IVA"
-                valor={dineroCorto(kpi.venta_total_sin_iva)}
-                apoyo="Base comparable contra HubSpot"
-              />
-            </div>
-          </Seccion>
+      {/* Torre de Control -- mismos 4 Actos que /maestro, con el vendedor
+          fijo en persona.id: no hay dropdown para cambiarlo (mostrarFiltroVendedor
+          es false) y el candado real es el RLS de Supabase, no esta prop. */}
+      <TorreDeControl
+        periodoIdParam={sp.periodo}
+        ventanaParam={sp.ventana}
+        vistaParam={sp.vista}
+        vendedorIdForzado={persona.id}
+        mostrarFiltroVendedor={false}
+        mostrarEncabezado={false}
+      />
 
-          {/* Eficiencia y mercado ------------------------------------------ */}
-          <Seccion
-            titulo="Eficiencia y métricas de mercado"
-            descripcion="Cómo se produjo el resultado, no solo cuánto."
-          >
-            <div className="grid gap-3 lg:grid-cols-3">
-              <div className="grid grid-cols-2 gap-3 lg:col-span-2">
-                <KpiCard
-                  etiqueta="Tasa de conversión"
-                  valor={pct(kpi.tasa_conversion_pct)}
-                  apoyo={kpi.conversion_es_reportada ? "Tasa reportada por la fuente" : "Ganados ÷ leads trabajados"}
-                />
-                <KpiCard
-                  etiqueta="Ticket promedio"
-                  valor={dineroCorto(kpi.ticket_promedio_sin_iva)}
-                  apoyo="Sin IVA, por negocio ganado"
-                />
-                <KpiCard
-                  etiqueta="Ciclo de cierre"
-                  valor={kpi.ciclo_cierre_dias != null ? dias(kpi.ciclo_cierre_dias) : "—"}
-                  apoyo="De creación del negocio al cierre"
-                  lectura={kpi.ciclo_cierre_dias != null && kpi.ciclo_cierre_dias > 60 ? "Ciclo largo: revisa la cadencia de seguimiento" : undefined}
-                  estado={kpi.ciclo_cierre_dias != null && kpi.ciclo_cierre_dias > 60 ? "debajo" : undefined}
-                />
-                <KpiCard
-                  etiqueta="Tareas abiertas"
-                  valor={num(kpi.tareas_abiertas)}
-                  apoyo="Sin ejecutar al cierre del periodo"
-                  lectura={
-                    kpi.tareas_abiertas != null && kpi.tareas_abiertas > (estandares["tareas_abiertas"]?.valor_max ?? 20)
-                      ? "Por encima del tope de tolerancia"
-                      : undefined
-                  }
-                  estado={
-                    kpi.tareas_abiertas != null && kpi.tareas_abiertas > (estandares["tareas_abiertas"]?.valor_max ?? 20)
-                      ? "arriba" : undefined
-                  }
-                />
-              </div>
-              <MezclaCartera existentes={kpi.venta_existentes_iva} nuevos={kpi.venta_nuevos_iva} />
-            </div>
-          </Seccion>
-
-          {/* Brecha -------------------------------------------------------- */}
-          <Seccion
-            titulo="Análisis de brecha / eficiencia operativa"
-            descripcion="Cada indicador contra su estándar universal, en la misma fila."
-          >
-            <Brecha filas={evaluacion?.brecha ?? []} kpi={kpi} estandares={estandares} />
-          </Seccion>
-        </>
-      )}
+      {/* Brecha -------------------------------------------------------- */}
+      <Seccion
+        titulo="Análisis de brecha / eficiencia operativa"
+        descripcion="Actividad capturada en el semáforo (correos, leads, actividades) contra el estándar universal -- complementa la Suite de Analítica de arriba, que es 100% HubSpot."
+      >
+        <Brecha filas={evaluacion?.brecha ?? []} kpi={kpi} estandares={estandares} />
+      </Seccion>
 
       {/* Evaluación cualitativa --------------------------------------------- */}
       {evaluacion && (
