@@ -700,27 +700,35 @@ function MotivosPerdidaLista({ filas }: { filas: MotivoPerdida[] }) {
   );
 }
 
-/** Traduce una bandera de sanitización en la instrucción concreta para resolverla, con nombre de quién debe actuar. */
+/**
+ * Traduce una bandera de sanitización en la instrucción concreta para
+ * resolverla. Estas son tareas de administración de HubSpot (asignar owner, corregir
+ * un duplicado, mapear una etapa) -- no son del vendedor dueño del deal,
+ * así que NUNCA se prefijan con un nombre de persona. Antes decían
+ * "Pricila:" fijo, lo que se leía como "otro ejecutivo se metió a mi
+ * vista" al filtrar por cualquier otro vendedor -- era solo el texto de
+ * la acción, el negocio sí pertenecía al vendedor filtrado.
+ */
 function accionBandera(flag: string, d: DealPorRevisar): string {
   const negocio = d.nombre ?? `#${d.hubspot_id}`;
   switch (flag) {
     case "owner_vacio":
     case "owner_sin_mapear":
-      return `Pricila: asignar vendedor a "${negocio}" en HubSpot.`;
+      return `Admin: asignar vendedor a "${negocio}" en HubSpot.`;
     case "diferido_sin_fecha_reactivacion":
-      return `${d.vendedor}: definir fecha de reactivación en HubSpot para "${negocio}".`;
+      return `Admin: definir fecha de reactivación en HubSpot para "${negocio}".`;
     case "monto_faltante":
-      return `${d.vendedor}: capturar el monto de "${negocio}" en HubSpot.`;
+      return `Admin: capturar el monto de "${negocio}" en HubSpot.`;
     case "duplicado":
-      return `Pricila: revisar posible duplicado de "${negocio}".`;
+      return `Admin: revisar posible duplicado de "${negocio}".`;
     case "fuera_de_periodo":
-      return `Pricila: revisar la fecha de cierre de "${negocio}" — cae fuera del periodo esperado.`;
+      return `Admin: revisar la fecha de cierre de "${negocio}" — cae fuera del periodo esperado.`;
     case "etapa_desconocida":
-      return `Pricila: etapa no reconocida en "${negocio}", revisar el pipeline en HubSpot.`;
+      return `Admin: etapa no reconocida en "${negocio}", revisar el pipeline en HubSpot.`;
     case "division_doble_conteo":
-      return `Pricila: confirmar en Monday si "${negocio}" es una división antes de contarlo dos veces.`;
+      return `Admin: confirmar en Monday si "${negocio}" es una división antes de contarlo dos veces.`;
     default:
-      return `${d.vendedor}: revisar "${negocio}" (${flag.replaceAll("_", " ")}).`;
+      return `Admin: revisar "${negocio}" (${flag.replaceAll("_", " ")}).`;
   }
 }
 
