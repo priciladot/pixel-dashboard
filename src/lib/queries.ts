@@ -1494,10 +1494,21 @@ async function probabilidadPorEtapa(
  * Negocios ABIERTOS del vendedor, agrupados por su fecha de cierre
  * estimada: mes activo (el del periodo seleccionado), próximo mes, o
  * "por definir" (sin fecha, o fuera de esos dos meses -- incluye
- * estimados vencidos que quedaron sin actualizar). La etapa viene de
- * v_deal_etapa_actual (la vigente, no hubspot_deals.etapa que puede
- * quedar desactualizada). "Empresa" casi siempre sale vacía para
- * negocios abiertos -- Monday solo registra tratos GANADOS, por diseño.
+ * estimados vencidos que quedaron sin actualizar).
+ *
+ * Consulta hubspot_deals DIRECTO -- no v_deal_etapa_actual. Esa vista sale
+ * de un JOIN que arranca desde hubspot_deal_stages, tabla que solo se
+ * llena para negocios con closedate (buscarHistorialEtapas filtra por
+ * fecha de cierre) -- un negocio genuinamente abierto que nunca se ha
+ * cerrado no tiene ahí ninguna fila y desaparecía por completo de esta
+ * proyección. hubspot_deals.etapa es el mismo dealstage crudo de HubSpot
+ * (id numérico, ej. "45202791"), así que "abierto" se resuelve con la
+ * misma lista de ids de ETAPAS_PIPELINE que usa etapaInfo() en el resto
+ * del código -- nunca contra strings como "closedwon" que este portal no
+ * guarda.
+ *
+ * "Empresa" casi siempre sale vacía para negocios abiertos -- Monday solo
+ * registra tratos GANADOS, por diseño.
  */
 export async function proyeccionPipeline(periodoId: string, vendedorId: string): Promise<ProyeccionPipeline> {
   const supabase = await createClient();
@@ -1518,24 +1529,26 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
   const rangoActivo = rangoDe(anio, mesActivo);
   const rangoProximo = rangoDe(anioProx, mesProx);
 
-  const [{ data: etapaActual }, probabilidad] = await Promise.all([
-    supabase.from("v_deal_etapa_actual").select("hubspot_id, etapa_actual, nombre, monto_con_iva").eq("vendedor_id", vendedorId),
+  const idsAbiertos = ETAPAS_PIPELINE.filter((e) => e.resultado === "abierto").map((e) => e.id);
+
+  const [{ data: dealsAbiertos }, probabilidad] = await Promise.all([
+    supabase.from("hubspot_deals")
+      .select("hubspot_id, nombre, monto_con_iva, etapa, fecha_cierre")
+      .eq("vendedor_id", vendedorId)
+      .in("etapa", idsAbiertos),
     probabilidadPorEtapa(supabase),
   ]);
 
-  const abiertos = ((etapaActual as Array<{
-    hubspot_id: string; etapa_actual: string; nombre: string | null; monto_con_iva: number | null;
-  }>) ?? []).filter((d) => etapaInfo(d.etapa_actual)?.resultado === "abierto");
+  const abiertos = (dealsAbiertos as Array<{
+    hubspot_id: string; nombre: string | null; monto_con_iva: number | null; etapa: string; fecha_cierre: string | null;
+  }>) ?? [];
 
   if (abiertos.length === 0) {
     return { probabilidadDisponible: probabilidad.size > 0, grupos: [] };
   }
 
-  const [{ data: fechas }, { data: mondayRows }] = await Promise.all([
-    supabase.from("hubspot_deals").select("hubspot_id, fecha_cierre").in("hubspot_id", abiertos.map((d) => d.hubspot_id)),
-    supabase.from("monday_cierres").select("hubspot_id, empresa").in("hubspot_id", abiertos.map((d) => d.hubspot_id)),
-  ]);
-  const mapaFecha = new Map(((fechas as Array<{ hubspot_id: string; fecha_cierre: string | null }>) ?? []).map((f) => [f.hubspot_id, f.fecha_cierre]));
+  const { data: mondayRows } = await supabase
+    .from("monday_cierres").select("hubspot_id, empresa").in("hubspot_id", abiertos.map((d) => d.hubspot_id));
   const mapaEmpresa = new Map(((mondayRows as Array<{ hubspot_id: string; empresa: string | null }>) ?? []).map((m) => [m.hubspot_id, m.empresa]));
 
   // Un negocio abierto con fecha de cierre ANTERIOR al mes activo está
@@ -1550,18 +1563,17 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
 
   const gruposMapa = new Map<ClaveGrupoPipeline, DealPipelineProyectado[]>();
   for (const d of abiertos) {
-    const fechaCierre = mapaFecha.get(d.hubspot_id) ?? null;
-    const clave = clasificar(fechaCierre);
+    const clave = clasificar(d.fecha_cierre);
     const lista = gruposMapa.get(clave) ?? [];
     lista.push({
       hubspot_id: d.hubspot_id,
       nombre: d.nombre,
       empresa: mapaEmpresa.get(d.hubspot_id) ?? null,
       monto_con_iva: d.monto_con_iva,
-      etapa_actual: d.etapa_actual,
-      etapa_label: nombreEtapa(d.etapa_actual),
-      fecha_cierre: fechaCierre,
-      probabilidad_pct: probabilidad.get(d.etapa_actual) ?? null,
+      etapa_actual: d.etapa,
+      etapa_label: nombreEtapa(d.etapa),
+      fecha_cierre: d.fecha_cierre,
+      probabilidad_pct: probabilidad.get(d.etapa) ?? null,
     });
     gruposMapa.set(clave, lista);
   }
