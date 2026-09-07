@@ -383,6 +383,7 @@ export interface VentaProducto {
   correo_cliente: string | null;
   productos: string | null;
   canal: string | null;
+  monto_sin_iva: number | null;
   monto_con_iva: number | null;
 }
 
@@ -391,6 +392,12 @@ export interface VentaProducto {
  * el desglose por vendedor. Incluye el nombre del deal (HubSpot) como
  * respaldo de despliegue: si `empresa` viene vacía en Monday, la UI NUNCA
  * debe caer al nombre de un vendedor -- usa el nombre del deal en su lugar.
+ *
+ * El monto que captura Monday (`monto_atribuido_con_iva` en la vista, pese
+ * al nombre de la columna) es SIN IVA -- confirmado contra el tablero real
+ * (Mar: $241,460 capturado en Monday vs. $280,094 con IVA). Aquí se
+ * exponen ambos valores por separado en vez de mostrar uno solo con una
+ * etiqueta que no le corresponde.
  */
 export async function ventasConProducto(periodoId: string, vendedorId?: string): Promise<VentaProducto[]> {
   const supabase = await createClient();
@@ -401,11 +408,27 @@ export async function ventasConProducto(periodoId: string, vendedorId?: string):
     .eq("cerrado_ganado", true);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.limit(1000);
-  const filas = (data as Array<{
+  let filas = (data as Array<{
     hubspot_id: string; vendedor_id: string | null; empresa: string | null; correo_cliente: string | null;
     productos: string | null; como_llego: string | null; monto_atribuido_con_iva: number | null;
   }>) ?? [];
   if (filas.length === 0) return [];
+
+  // Con un vendedor filtrado, el mismo hubspot_id no debería repetirse --
+  // una venta dividida real usa un vendedor_id DISTINTO por fila (eso ya lo
+  // descarta el filtro de arriba). Si el mismo trato aparece dos veces bajo
+  // el MISMO vendedor, es una fila de Monday duplicada (error de captura),
+  // no una división -- se queda con la de mayor monto.
+  if (vendedorId) {
+    const porDeal = new Map<string, (typeof filas)[number]>();
+    for (const f of filas) {
+      const actual = porDeal.get(f.hubspot_id);
+      if (!actual || (f.monto_atribuido_con_iva ?? 0) > (actual.monto_atribuido_con_iva ?? 0)) {
+        porDeal.set(f.hubspot_id, f);
+      }
+    }
+    filas = [...porDeal.values()];
+  }
 
   const nombres = await porLotes([...new Set(filas.map((f) => f.hubspot_id))], 200, async (lote) => {
     const { data } = await supabase.from("hubspot_deals").select("hubspot_id, nombre").in("hubspot_id", lote);
@@ -421,7 +444,8 @@ export async function ventasConProducto(periodoId: string, vendedorId?: string):
     correo_cliente: r.correo_cliente,
     productos: r.productos,
     canal: r.como_llego,
-    monto_con_iva: r.monto_atribuido_con_iva,
+    monto_sin_iva: r.monto_atribuido_con_iva,
+    monto_con_iva: r.monto_atribuido_con_iva == null ? null : Math.round(r.monto_atribuido_con_iva * 1.16 * 100) / 100,
   }));
 }
 

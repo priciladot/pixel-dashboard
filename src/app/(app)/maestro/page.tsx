@@ -171,7 +171,7 @@ export default async function Maestro({
       >
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
-            etiqueta={seleccionado ? "Venta del vendedor" : "Venta del periodo"}
+            etiqueta="Venta oficial del periodo (con IVA)"
             valor={dineroCorto(resumen.venta_total_iva)}
             apoyo={dinero(resumen.venta_total_iva)}
           />
@@ -785,7 +785,8 @@ function VentasProductosTabla({
               <th className="px-4 py-2.5 font-medium">Correo de contacto</th>
               <th className="px-4 py-2.5 font-medium">Producto(s)</th>
               <th className="px-4 py-2.5 font-medium">Canal</th>
-              <th className="px-4 py-2.5 font-medium">Monto (con IVA)</th>
+              <th className="px-4 py-2.5 font-medium">Monto en Monday (sin IVA)</th>
+              <th className="px-4 py-2.5 font-medium">Monto con IVA (×1.16)</th>
             </tr>
           </thead>
           <tbody>
@@ -798,6 +799,7 @@ function VentasProductosTabla({
                 <td className="px-4 py-2.5 text-ink-soft">{f.correo_cliente ?? "—"}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{f.productos ?? "—"}</td>
                 <td className="px-4 py-2.5 text-ink-soft">{f.canal ?? "—"}</td>
+                <td className="px-4 py-2.5 tabular text-ink-soft">{dinero(f.monto_sin_iva)}</td>
                 <td className="px-4 py-2.5 tabular font-medium text-ink">{dinero(f.monto_con_iva)}</td>
               </tr>
             ))}
