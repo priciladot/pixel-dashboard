@@ -443,7 +443,7 @@ export async function motivosPerdida(periodoId: string, vendedorId?: string): Pr
 export interface ResumenOperativoMonday {
   porTipoNegocio: Array<{ tipo: string; deals: number; monto_con_iva: number }>;
   porCanal: Array<{ canal: string; deals: number; monto_con_iva: number }>;
-  /** Cuántos negocios del periodo no tienen NINGUNA fila en Monday — "Sin clasificar" viene de aquí, no de un mapeo incorrecto. */
+  /** Cuántos negocios GANADOS del periodo no tienen NINGUNA fila en Monday (para contexto, no para el desglose en sí). */
   sinRegistroMonday: number;
   totalDeals: number;
 }
@@ -451,17 +451,19 @@ export interface ResumenOperativoMonday {
 const CANALES_CARTERA_EXISTENTE = new Set(["contacto existente", "remarketing"]);
 
 /**
- * Tipo de negocio y canal de origen, ambos desde v_deals_operativo.
- * Regla de clasificación (confirmada 2026-09-05): "Contacto existente" y
- * "Remarketing" en Monday = cartera existente; cualquier otro canal
- * capturado (WhatsApp, Instagram, Facebook, Recomendación, Patagon, Ads...)
- * = cliente nuevo. Sin canal capturado, se cae al tipo_negocio que ya trae
- * v_deals_operativo (Monday "Tipo de Negocio" o tipo_cliente de HubSpot).
+ * Tipo de negocio y canal de origen, **solo de los negocios que sí están
+ * registrados en Monday** — esta tarjeta responde "¿cómo se clasifican los
+ * negocios que Monday capturó?", no "¿qué % de todo el pipeline de HubSpot
+ * tiene Monday?" (esa segunda pregunta la responde la alerta de auditoría
+ * "ganado_sin_monday"). Por diseño de Monday (solo trackea ganados), el
+ * universo aquí es angosto -- eso es correcto, no un defecto de esta tarjeta.
  *
- * Esto NO elimina "Sin clasificar": ese balde sigue existiendo para los
- * negocios que no tienen ninguna fila en Monday en absoluto — no es un
- * problema de mapeo, es que la mayoría del pipeline nunca llega a Monday
- * (ese tablero solo trackea ganados). Ver `sinRegistroMonday`.
+ * Regla de clasificación (confirmada 2026-09-06 contra capturas reales del
+ * tablero): "Contacto existente" y "Remarketing" = cartera existente;
+ * cualquier otro canal capturado (WhatsApp, Instagram, Recomendación,
+ * Photo AI, Llamada, Equipo comercial, Ads...) = cliente nuevo. Las pocas
+ * filas de Monday sin canal capturado (ver alerta "monday_sin_canal") caen
+ * en "sin_canal" -- no se inventa existente/nuevo para ellas.
  *
  * OJO: en la vista grupal (sin vendedor), un deal dividido entre dos
  * personas aporta 2 filas — el monto suma correcto (ya viene repartido),
@@ -471,26 +473,26 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
   const supabase = await createClient();
   let q = supabase
     .from("v_deals_operativo")
-    .select("tipo_negocio, como_llego, monto_atribuido_con_iva, monday_elemento_id")
+    .select("como_llego, monto_atribuido_con_iva, monday_elemento_id, cerrado_ganado")
     .eq("periodo_id", periodoId);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.limit(2000);
 
-  const filas = (data as Array<{
-    tipo_negocio: string | null; como_llego: string | null;
-    monto_atribuido_con_iva: number | null; monday_elemento_id: string | null;
+  const todas = (data as Array<{
+    como_llego: string | null; monto_atribuido_con_iva: number | null;
+    monday_elemento_id: string | null; cerrado_ganado: boolean | null;
   }>) ?? [];
+
+  const sinRegistroMonday = todas.filter((r) => r.cerrado_ganado && !r.monday_elemento_id).length;
+  const filas = todas.filter((r) => r.monday_elemento_id);
 
   const porTipoMapa = new Map<string, { deals: number; monto: number }>();
   const porCanalMapa = new Map<string, { deals: number; monto: number }>();
-  let sinRegistroMonday = 0;
 
   for (const r of filas) {
-    if (!r.monday_elemento_id) sinRegistroMonday += 1;
-
     const tipo = r.como_llego
       ? (CANALES_CARTERA_EXISTENTE.has(r.como_llego.trim().toLowerCase()) ? "existente" : "nuevo")
-      : (r.tipo_negocio ?? "por_revisar");
+      : "sin_canal";
     const t = porTipoMapa.get(tipo) ?? { deals: 0, monto: 0 };
     t.deals += 1;
     t.monto += r.monto_atribuido_con_iva ?? 0;

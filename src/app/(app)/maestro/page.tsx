@@ -258,26 +258,30 @@ export default async function Maestro({
         )}
       </Seccion>
 
-      {/* Origen y canal de venta (Monday) ----------------------------------- */}
+      {/* Origen y canal de venta (Monday) -----------------------------------
+          A propósito solo mira los negocios que SÍ están en Monday -- esta
+          tarjeta responde "¿cómo se clasifican los negocios que Monday
+          capturó?", no "¿qué % de HubSpot tiene Monday?" (eso lo cubre la
+          alerta "ganado_sin_monday" de Focos rojos de auditoría, arriba). */}
       <Seccion
         titulo="Origen y canal de venta"
         descripcion={
           seleccionado
-            ? `Tipo de negocio y canal de origen de ${seleccionado.nombre_corto}, según el tablero de Monday.`
-            : "Tipo de negocio y canal de origen del equipo, según el tablero de Monday."
+            ? `Tipo de negocio y canal de origen de ${seleccionado.nombre_corto}, de los negocios registrados en Monday.`
+            : "Tipo de negocio y canal de origen del equipo, de los negocios registrados en Monday."
         }
       >
         <div className="grid gap-3 lg:grid-cols-2">
           <TipoNegocioResumen filas={operativoMonday.porTipoNegocio} />
           <CanalesVenta filas={operativoMonday.porCanal} />
         </div>
-        {operativoMonday.totalDeals > 0 && (
-          <p className="mt-3 text-[11px] text-ink-muted">
-            {operativoMonday.sinRegistroMonday} de {operativoMonday.totalDeals} negocios del periodo no tienen ninguna fila en Monday
-            (ese tablero solo registra negocios ganados, no todo el pipeline) — por eso "Sin clasificar" no baja a cero aunque el
-            mapeo de canal esté completo para los que sí cruzan.
-          </p>
-        )}
+        <p className="mt-3 text-[11px] text-ink-muted">
+          {operativoMonday.totalDeals} negocios de Monday clasificados aquí.
+          {operativoMonday.sinRegistroMonday > 0 && (
+            <> {operativoMonday.sinRegistroMonday} negocios ganados del periodo no están en Monday y por lo tanto no aparecen en esta
+            tarjeta — quedan como alerta en "Focos rojos de auditoría e higiene", arriba.</>
+          )}
+        </p>
       </Seccion>
 
       {/* Motivos de pérdida -------------------------------------------------- */}
@@ -502,7 +506,7 @@ function AccionesPrioritarias({
 /** Existente vs. nuevo, respaldado por Monday cuando HubSpot no lo trae (ver v_deals_operativo). */
 function TipoNegocioResumen({ filas }: { filas: ResumenOperativoMonday["porTipoNegocio"] }) {
   const total = filas.reduce((acc, f) => acc + f.deals, 0);
-  const etiquetas: Record<string, string> = { existente: "Existente", nuevo: "Nuevo", por_revisar: "Sin clasificar" };
+  const etiquetas: Record<string, string> = { existente: "Existente", nuevo: "Nuevo", sin_canal: "Sin canal capturado" };
 
   return (
     <Card className="px-4 py-4">
