@@ -7,8 +7,8 @@ import { dinero, pct } from "@/lib/format";
  * segmentos para que la frontera no se lea como un tercer color.
  */
 export function MezclaCartera({
-  existentes, nuevos, nota,
-}: { existentes: number | null; nuevos: number | null; nota?: string | null }) {
+  existentes, nuevos,
+}: { existentes: number | null; nuevos: number | null }) {
   const e = existentes ?? 0;
   const n = nuevos ?? 0;
   const total = e + n;
@@ -58,8 +58,6 @@ export function MezclaCartera({
           </ul>
         </>
       )}
-
-      {nota && <p className="mt-3 border-t border-line pt-2 text-[11px] text-ink-muted">{nota}</p>}
     </Card>
   );
 }

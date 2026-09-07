@@ -152,7 +152,7 @@ export default async function VistaVendedor({
                   }
                 />
               </div>
-              <MezclaCartera existentes={kpi.venta_existentes_iva} nuevos={kpi.venta_nuevos_iva} nota={kpi.notas} />
+              <MezclaCartera existentes={kpi.venta_existentes_iva} nuevos={kpi.venta_nuevos_iva} />
             </div>
           </Seccion>
 

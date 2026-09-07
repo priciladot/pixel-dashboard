@@ -12,14 +12,14 @@ import {
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
   type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
   type PasoEmbudo, type VelocidadNegocio, type GanadosPerdidos, type AccionCoach,
-  type DisciplinaComercial as TDisciplinaComercial, type EstatusReto,
+  type DisciplinaComercial as TDisciplinaComercial, type EstatusReto, type RetoSemana,
 } from "@/lib/queries";
 import { Card, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { TablaComparativa } from "@/components/TablaComparativa";
 import { MezclaCartera } from "@/components/MezclaCartera";
 import { dias, dinero, dineroCorto, num, pct } from "@/lib/format";
-import { ETAPAS_PIPELINE, nombreEtapa } from "@/lib/pipeline-etapas";
+import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
 import type { Ventana } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +44,7 @@ export default async function Maestro({
     equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday,
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
     actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
-    coachAcciones, disciplina,
+    coachAcciones, disciplina, estancados10,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
@@ -69,6 +69,7 @@ export default async function Maestro({
     ganadosPerdidos(periodoId, vistaTiempo, sp.vendedor),
     sp.vendedor ? diagnosticoCoach(periodoId, sp.vendedor) : Promise.resolve([] as AccionCoach[]),
     sp.vendedor ? disciplinaComercial(periodoId, sp.vendedor) : Promise.resolve(null as TDisciplinaComercial | null),
+    dealsEstancados(periodoId, sp.vendedor, 10),
   ]);
 
   const filas = sp.vendedor ? equipo.filter((f) => f.vendedor_id === sp.vendedor) : equipo;
@@ -100,7 +101,6 @@ export default async function Maestro({
         tareas_abiertas: tareas.length,
         venta_existentes_iva: seleccionado.venta_existentes_iva,
         venta_nuevos_iva: seleccionado.venta_nuevos_iva,
-        notas: seleccionado.notas,
         deals_marketing: null as number | null,
         monto_marketing_sin_iva: null as number | null,
         ciclo_cierre_promedio: seleccionado.ciclo_cierre_dias,
@@ -118,7 +118,6 @@ export default async function Maestro({
         tareas_abiertas: tareas.length,
         venta_existentes_iva: area?.venta_existentes_iva ?? null,
         venta_nuevos_iva: area?.venta_nuevos_iva ?? null,
-        notas: area?.notas ?? null,
         deals_marketing: area?.deals_marketing ?? null,
         monto_marketing_sin_iva: area?.monto_marketing_sin_iva ?? null,
         ciclo_cierre_promedio: area?.ciclo_cierre_promedio ?? null,
@@ -242,7 +241,6 @@ export default async function Maestro({
           <MezclaCartera
             existentes={resumen.venta_existentes_iva}
             nuevos={resumen.venta_nuevos_iva}
-            nota={resumen.notas}
           />
           <Card className="px-4 py-4 lg:col-span-2">
             <h3 className="mb-2.5 text-[13px] font-semibold text-ink">
@@ -357,16 +355,13 @@ export default async function Maestro({
         </Seccion>
       )}
 
-      {/* Suite de analítica de HubSpot (réplica) -----------------------------
-          3 de los 10 reportes originales no están aquí -- necesitan datos
-          que hoy no existen o no se capturan (ver NoDisponible más abajo),
-          no se simulan con datos inventados. */}
+      {/* Suite de analítica comercial ------------------------------------- */}
       <Seccion
-        titulo={`Suite de analítica de HubSpot — ${vistaTiempo === "trimestral" ? "Trimestral (Q3)" : "Mensual"}`}
+        titulo={`Suite de analítica comercial — ${vistaTiempo === "trimestral" ? "Trimestral (Q3)" : "Mensual"}`}
         descripcion={
           seleccionado
-            ? `Réplica de los reportes nativos de HubSpot para ${seleccionado.nombre_corto}.`
-            : "Réplica de los reportes nativos de HubSpot para todo el equipo."
+            ? `Analítica de ventas y actividad de ${seleccionado.nombre_corto}.`
+            : "Analítica de ventas y actividad de todo el equipo."
         }
       >
         <div className="grid gap-3 lg:grid-cols-3">
@@ -376,13 +371,14 @@ export default async function Maestro({
           <TamanoNegocioResumen filas={tamanoNegocio} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
           <HistorialCambiosResumen datos={historialCambios} />
           <VelocidadNegociosResumen filas={velocidad} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+          <DistribucionPipeline filas={etapasActuales} />
+          <TratosEstancadosResumen filas={estancados10} />
+          <TopProductosResumen filas={ventasProducto} />
         </div>
 
         <div className="mt-3">
           <EmbudoDetallado filas={embudoDetallado} />
         </div>
-
-        <NoDisponibleAnalitica />
       </Seccion>
 
       {/* Calidad de datos ------------------------------------------------- */}
@@ -874,9 +870,6 @@ function ActividadesPorTipoResumen({ filas }: { filas: ActividadPorTipo[] }) {
           ))}
         </ul>
       )}
-      <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-muted">
-        "Correo enviado" queda en 0 -- falta el scope crm.objects.emails.read en HubSpot.
-      </p>
     </Card>
   );
 }
@@ -1031,16 +1024,91 @@ function EmbudoDetallado({ filas }: { filas: PasoEmbudo[] }) {
   );
 }
 
-/** Los 3 reportes que no se pueden replicar hoy sin datos que no existen. */
-function NoDisponibleAnalitica() {
+/** Distribución del pipeline abierto por etapa: cuántos negocios y cuánto dinero hay en cada fase ahora mismo. */
+function DistribucionPipeline({ filas }: { filas: Array<{ etapa_actual: string; monto_con_iva: number | null }> }) {
+  const abiertas = filas.filter((f) => etapaInfo(f.etapa_actual)?.resultado === "abierto");
+  if (abiertas.length === 0) {
+    return <p className="text-[13px] text-ink-soft">Sin negocios abiertos en el pipeline este periodo.</p>;
+  }
+  const mapa = new Map<string, { deals: number; monto: number }>();
+  for (const f of abiertas) {
+    const cur = mapa.get(f.etapa_actual) ?? { deals: 0, monto: 0 };
+    cur.deals += 1;
+    cur.monto += f.monto_con_iva ?? 0;
+    mapa.set(f.etapa_actual, cur);
+  }
+  const etapasConDatos = ETAPAS_PIPELINE.filter((e) => e.resultado === "abierto" && mapa.has(e.id));
   return (
-    <div className="mt-3 rounded-card border border-line bg-surface-sunk px-4 py-3 text-[12px] text-ink-muted">
-      <p className="mb-1 font-medium text-ink-soft">3 de los 10 reportes no están disponibles todavía:</p>
-      <ul className="list-disc space-y-0.5 pl-4">
-        <li><span className="font-medium">Embudo de leads</span> y <span className="font-medium">tiempo de respuesta de leads</span> — el objeto Leads de HubSpot está vacío en este portal (no habilitado, o sin permiso).</li>
-        <li><span className="font-medium">Resultados de reuniones</span> — nunca se pidió la propiedad de resultado (hs_meeting_outcome) al sincronizar; hay que ampliar la ingesta y volver a correrla para tener esto.</li>
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Distribución de pipeline por etapa</h3>
+      <ul className="space-y-1.5">
+        {etapasConDatos.map((e) => {
+          const v = mapa.get(e.id)!;
+          return (
+            <li key={e.id} className="flex items-center justify-between gap-3 text-[12px]">
+              <span className="truncate text-ink-soft" title={e.label}>{e.label}</span>
+              <span className="tabular shrink-0 font-medium text-ink">{num(v.deals)} · {dinero(v.monto)}</span>
+            </li>
+          );
+        })}
       </ul>
-    </div>
+    </Card>
+  );
+}
+
+/** Negocios sin avance real en los últimos 10 días. */
+function TratosEstancadosResumen({ filas }: { filas: DealEstancado[] }) {
+  const monto = filas.reduce((acc, f) => acc + (f.monto_con_iva ?? 0), 0);
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Tratos estancados (10+ días)</h3>
+      <p className="mb-2 text-[20px] font-semibold text-ink">{num(filas.length)}</p>
+      {filas.length === 0 ? (
+        <p className="text-[12px] text-ink-soft">Sin negocios estancados este periodo.</p>
+      ) : (
+        <>
+          <p className="text-[12px] text-ink-soft">{dinero(monto)} en riesgo de enfriarse</p>
+          <ul className="mt-2 space-y-1 border-t border-line pt-2">
+            {filas.slice(0, 4).map((f) => (
+              <li key={f.hubspot_id} className="flex items-center justify-between gap-2 text-[11px] text-ink-muted">
+                <span className="truncate" title={f.nombre ?? f.hubspot_id}>{f.nombre ?? `#${f.hubspot_id}`}</span>
+                <span className="tabular shrink-0">{f.dias_sin_actividad}d</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Top 5 combinaciones de producto/servicio con más monto vendido (Monday), del periodo filtrado. */
+function TopProductosResumen({ filas }: { filas: VentaProducto[] }) {
+  const mapa = new Map<string, { deals: number; monto: number }>();
+  for (const f of filas) {
+    const clave = f.productos?.trim() || "Sin producto capturado en Monday";
+    const cur = mapa.get(clave) ?? { deals: 0, monto: 0 };
+    cur.deals += 1;
+    cur.monto += f.monto_con_iva ?? 0;
+    mapa.set(clave, cur);
+  }
+  const top = [...mapa.entries()].sort((a, b) => b[1].monto - a[1].monto).slice(0, 5);
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Top productos/servicios vendidos</h3>
+      {top.length === 0 ? (
+        <p className="text-[13px] text-ink-soft">Sin ventas con producto capturado este periodo.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {top.map(([producto, v]) => (
+            <li key={producto} className="flex items-center justify-between gap-3 text-[12px]">
+              <span className="truncate text-ink-soft" title={producto}>{producto}</span>
+              <span className="tabular shrink-0 font-medium text-ink">{dinero(v.monto)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 
@@ -1071,22 +1139,36 @@ const COLOR_CATEGORIA_COACH: Record<AccionCoach["categoria"], string> = {
   conversion: "#c0392b", higiene: "#a04a25", velocidad: "#8a6100", ticket: "#2a78d6",
 };
 
-/** Coach Comercial: diagnóstico y 2-3 micro-acciones del vendedor filtrado, 100% derivadas de la Suite de Analítica ya calculada. */
+const TACTICAS_B2B: Array<{ titulo: string; texto: string }> = [
+  { titulo: "Manejo de objeciones: aísla antes de responder", texto: 'Cuando el cliente diga "está caro", no ofrezcas descuento de inmediato. Pregunta: "¿Es el único punto que te detiene, o hay algo más?" Aislar la objeción evita negociar contra un fantasma.' },
+  { titulo: "Cierre consultivo: resume y pregunta", texto: 'Antes de pedir la firma, resume en una frase el problema del cliente y cómo tu propuesta lo resuelve, y pregunta directo: "¿Esto cubre lo que necesitas para avanzar?" El resumen hace el cierre casi automático.' },
+  { titulo: "Seguimiento de propuestas: fecha y hora, no \"la próxima semana\"", texto: 'Al enviar una cotización, no digas que le das seguimiento después. Agenda el día y la hora exactos frente al cliente, ahí mismo en la llamada.' },
+  { titulo: "Manejo de objeciones: precio vs. valor", texto: "Si insisten en precio, regresa a lo que cuesta NO resolver el problema (tiempo perdido, oportunidad, riesgo). Cambia la conversación de costo a inversión." },
+  { titulo: "Cierre consultivo: pregunta de compromiso", texto: 'Termina cada llamada de propuesta con una pregunta directa: "¿Qué necesitas de tu lado para poder decidir esta semana?" Expone objeciones ocultas antes de que se conviertan en silencio.' },
+];
+
+function tacticaDeLaSemana(): { titulo: string; texto: string } {
+  const inicioAnio = new Date(new Date().getFullYear(), 0, 1).getTime();
+  const semanaDelAnio = Math.floor((Date.now() - inicioAnio) / (7 * 86_400_000));
+  return TACTICAS_B2B[semanaDelAnio % TACTICAS_B2B.length];
+}
+
+/** Coach Comercial: diagnóstico y 2-3 micro-acciones del vendedor filtrado, 100% derivadas de la Suite de Analítica ya calculada, más una táctica B2B genérica que rota cada semana. */
 function CoachComercial({ acciones }: { acciones: AccionCoach[] }) {
-  if (acciones.length === 0) {
-    return (
-      <p className="text-[13px] text-ink-soft">
-        Sin focos de atención este mes -- ningún indicador crítico, o todavía no hay negocios registrados en el periodo.
-      </p>
-    );
-  }
+  const tactica = tacticaDeLaSemana();
   const [retoSemana, ...resto] = acciones;
   return (
     <div className="space-y-3">
-      <div className="rounded-card border border-line bg-surface-sunk px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Reto de la semana</p>
-        <p className="mt-1 text-[13px] font-medium text-ink">{retoSemana.mensaje}</p>
-      </div>
+      {retoSemana ? (
+        <div className="rounded-card border border-line bg-surface-sunk px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Reto de la semana</p>
+          <p className="mt-1 text-[13px] font-medium text-ink">{retoSemana.mensaje}</p>
+        </div>
+      ) : (
+        <p className="text-[13px] text-ink-soft">
+          Sin focos de atención este mes -- ningún indicador crítico, o todavía no hay negocios registrados en el periodo.
+        </p>
+      )}
       {resto.length > 0 && (
         <div className="grid gap-3 md:grid-cols-2">
           {resto.slice(0, 2).map((a) => (
@@ -1100,6 +1182,11 @@ function CoachComercial({ acciones }: { acciones: AccionCoach[] }) {
           ))}
         </div>
       )}
+      <div className="rounded-card border border-line bg-surface px-4 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#2a78d6]">Táctica comercial de la semana</p>
+        <p className="mt-1 text-[13px] font-medium text-ink">{tactica.titulo}</p>
+        <p className="mt-1 text-[12px] text-ink-soft">{tactica.texto}</p>
+      </div>
     </div>
   );
 }
@@ -1110,6 +1197,8 @@ function DisciplinaComercial({ disciplina }: { disciplina: TDisciplinaComercial 
   if (semanas.length === 0) {
     return <p className="text-[13px] text-ink-soft">Sin calendario de semanas (S1-S4) configurado para este periodo.</p>;
   }
+  const hoy = new Date().toISOString().slice(0, 10);
+  const etiquetaTemporalDe = (s: RetoSemana): string => (s.esSemanaActual ? "En curso" : s.fin < hoy ? "Pasada" : "Próxima");
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2.5">
@@ -1142,7 +1231,9 @@ function DisciplinaComercial({ disciplina }: { disciplina: TDisciplinaComercial 
                 <tr key={s.semana} className="border-b border-line/70 last:border-0">
                   <td className="px-4 py-2.5 text-ink">
                     {s.etiqueta}
-                    {s.esSemanaActual && <span className="ml-1.5 text-[10px] font-medium text-serie-1">(en curso)</span>}
+                    <span className={`ml-1.5 text-[10px] font-medium ${s.esSemanaActual ? "text-serie-1" : "text-ink-muted"}`}>
+                      ({etiquetaTemporalDe(s)})
+                    </span>
                   </td>
                   <td className="px-4 py-2.5 tabular text-ink-soft">
                     {dinero(s.montoVendido)}
