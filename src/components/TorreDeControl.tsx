@@ -1,16 +1,10 @@
-import Link from "next/link";
 import { Suspense } from "react";
 import {
-  kpisDelPeriodo, periodos, resumenArea, vendedores, dealsPorRevisar,
-  tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday,
-  accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
-  actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
-  embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
-  type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday,
-  type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
-  type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
-  type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
-  type PasoEmbudo, type VelocidadNegocio, type GanadosPerdidos, type AccionCoach,
+  kpisDelPeriodo, periodos, resumenArea, vendedores,
+  tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida,
+  ventasConProducto, alertasHigiene, diagnosticoCoach, disciplinaComercial,
+  type DealEstancado, type MotivoPerdida,
+  type VentaProducto, type AlertaAuditoria, type AccionCoach,
   type DisciplinaComercial as TDisciplinaComercial, type EstatusReto, type RetoSemana,
 } from "@/lib/queries";
 import { Card, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
@@ -18,13 +12,16 @@ import { Filtros } from "@/components/Filtros";
 import { TablaComparativa } from "@/components/TablaComparativa";
 import { MezclaCartera } from "@/components/MezclaCartera";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
-import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
+import { ETAPAS_PIPELINE, nombreEtapa } from "@/lib/pipeline-etapas";
 import type { Ventana } from "@/lib/types";
 
 /**
- * Torre de Control: el cuerpo completo de los 4 Actos (Diagnóstico y
- * coaching / Mi plan y focos rojos / Análisis de fugas y pipeline /
- * Detalle operativo). La usan dos rutas:
+ * Torre de Control: los 3 Pasos consolidados (Diagnóstico y Meta / Ritmo
+ * de Cierre y Ejecución Semanal / Focos Rojos y Desglose Operativo) --
+ * sin widgets repetidos: la Comparativa se oculta con un vendedor
+ * filtrado (su cuota ya está en el Centro de Mando), y el antiguo
+ * "Análisis de brecha" quedó fundido como una línea de actividad del mes
+ * dentro de Mi Ritmo de Cierre. La usan dos rutas:
  *  - /maestro (admin/supervisor): mostrarFiltroVendedor=true,
  *    vendedorIdForzado opcional (viene del dropdown, puede ser "todo el
  *    equipo").
@@ -35,11 +32,10 @@ import type { Ventana } from "@/lib/types";
  *    un vendedor vea el filtro de otro compañero.
  */
 export async function TorreDeControl({
-  periodoIdParam, ventanaParam, vistaParam, vendedorIdForzado, mostrarFiltroVendedor, mostrarEncabezado,
+  periodoIdParam, ventanaParam, vendedorIdForzado, mostrarFiltroVendedor, mostrarEncabezado,
 }: {
   periodoIdParam?: string;
   ventanaParam?: string;
-  vistaParam?: string;
   vendedorIdForzado?: string;
   mostrarFiltroVendedor: boolean;
   mostrarEncabezado: boolean;
@@ -53,39 +49,23 @@ export async function TorreDeControl({
 
   const periodoId = periodoIdParam && lista.some((p) => p.id === periodoIdParam) ? periodoIdParam : lista[0].id;
   const ventana: Ventana = ventanaParam === "calendario" ? "calendario" : "kpi_4_semanas";
-  const vistaTiempo: VistaTiempo = vistaParam === "trimestral" ? "trimestral" : "mensual";
   const periodo = lista.find((p) => p.id === periodoId)!;
 
   const [
-    equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday,
-    acciones, ventasProducto, higiene, semanaPasada, proyeccion,
-    actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
-    coachAcciones, disciplina, estancados10,
+    equipo, area, personas, tareas, etapasActuales, estancados, perdidas,
+    ventasProducto, higiene, coachAcciones, disciplina,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
     vendedores(),
-    dealsPorRevisar(periodoId, vendedorId),
     tareasAbiertas(vendedorId),
     etapaActualDeals(periodoId, vendedorId),
     dealsEstancados(periodoId, vendedorId, 7),
     motivosPerdida(periodoId, vendedorId),
-    resumenOperativoMonday(periodoId, vendedorId),
-    accionesPrioritarias(periodoId, vendedorId, 10),
     ventasConProducto(periodoId, vendedorId),
     alertasHigiene(periodoId, vendedorId, 5),
-    productosSemanaPasada(vendedorId),
-    proyeccionProximaSemana(vendedorId),
-    actividadesPorTipo(periodoId, vistaTiempo, vendedorId),
-    tareasPorEstado(periodoId, vistaTiempo, vendedorId),
-    tamanoPromedioNegocio(periodoId, vistaTiempo, vendedorId),
-    historialCambiosNegocio(periodoId, vistaTiempo, vendedorId),
-    embudoConConversion(periodoId, vistaTiempo, vendedorId),
-    velocidadNegocios(periodoId, vistaTiempo, vendedorId),
-    ganadosPerdidos(periodoId, vistaTiempo, vendedorId),
     vendedorId ? diagnosticoCoach(periodoId, vendedorId) : Promise.resolve([] as AccionCoach[]),
     vendedorId ? disciplinaComercial(periodoId, vendedorId) : Promise.resolve(null as TDisciplinaComercial | null),
-    dealsEstancados(periodoId, vendedorId, 10),
   ]);
 
   const filas = vendedorId ? equipo.filter((f) => f.vendedor_id === vendedorId) : equipo;
@@ -156,13 +136,12 @@ export async function TorreDeControl({
             <Filtros
               periodos={lista}
               vendedores={mostrarFiltroVendedor ? personas.filter((p) => p.rol === "vendedor") : []}
-              mostrarVistaTiempo
             />
           </Suspense>
         </div>
       )}
 
-      <ActoHeader numero={1} color="#2a78d6" titulo="Diagnóstico y coaching" />
+      <ActoHeader numero={1} color="#2a78d6" titulo="Diagnóstico y Meta" />
 
       {/* Resumen ejecutivo -------------------------------------------------- */}
       <Seccion
@@ -256,66 +235,43 @@ export async function TorreDeControl({
         )}
       </Seccion>
 
-      {/* Comparativo ------------------------------------------------------ */}
-      <Seccion
-        titulo="Comparativa de desempeño y cumplimiento"
-        descripcion={`${filas.length} de ${equipo.length} registros del periodo. Venta: cifra oficial del Semáforo Comercial (captura manual), no un cálculo automático de HubSpot.`}
-        acciones={
-          mostrarFiltroVendedor && vendedorId ? (
-            <Link href={`/maestro?periodo=${periodoId}&ventana=${ventana}`} className="text-[12px] text-ink-soft underline">
-              Quitar filtro de vendedor
-            </Link>
-          ) : undefined
-        }
-      >
-        <TablaComparativa filas={filas} />
-        {conObjetivoPorConfirmar && (
-          <p className="mt-2 text-[12px] text-ink-muted">
-            Los objetivos marcados con <span className="font-medium">*</span> están reconstruidos a partir del
-            porcentaje de cumplimiento reportado. Captúralos desde el semáforo para que el comparativo sea exacto.
-          </p>
-        )}
-      </Seccion>
+      {/* Comparativo -- solo tiene sentido comparando gente. Con un vendedor
+          filtrado su cuota y cumplimiento ya están arriba en el Centro de
+          Mando, así que aquí se oculta para no repetir la misma cifra dos
+          veces. */}
+      {!seleccionado && (
+        <Seccion
+          titulo="Comparativa de desempeño y cumplimiento"
+          descripcion={`${filas.length} de ${equipo.length} registros del periodo. Venta: cifra oficial del Semáforo Comercial (captura manual), no un cálculo automático de HubSpot.`}
+        >
+          <TablaComparativa filas={filas} />
+          {conObjetivoPorConfirmar && (
+            <p className="mt-2 text-[12px] text-ink-muted">
+              Los objetivos marcados con <span className="font-medium">*</span> están reconstruidos a partir del
+              porcentaje de cumplimiento reportado. Captúralos desde el semáforo para que el comparativo sea exacto.
+            </p>
+          )}
+        </Seccion>
+      )}
 
-      <ActoHeader numero={2} color="#1baf7a" titulo="Mi plan y focos rojos" subtitulo="Acción diaria" />
+      <ActoHeader numero={2} color="#1baf7a" titulo="Ritmo de Cierre y Ejecución Semanal (S1-S4)" />
 
       {seleccionado && disciplina && (
         <Seccion
           titulo="📊 Mi Ritmo de Cierre (S1-S4)"
           descripcion={`Cumplimiento semana a semana (S1-S4) de ${seleccionado.nombre_corto} contra su propia meta y ritmo, calendario real de ${periodo.etiqueta}.`}
         >
-          <DisciplinaComercial disciplina={disciplina} />
+          <DisciplinaComercial disciplina={disciplina} tareasAtrasadas={tareasAtrasadas} />
+          {(seleccionado.correos_enviados != null || seleccionado.leads_registrados != null || seleccionado.actividades_totales != null) && (
+            <p className="mt-3 border-t border-line pt-2.5 text-[11px] text-ink-muted">
+              Actividad del mes (semáforo comercial, no HubSpot):{" "}
+              {seleccionado.correos_enviados != null && <>{num(seleccionado.correos_enviados)} correos · </>}
+              {seleccionado.leads_registrados != null && <>{num(seleccionado.leads_registrados)} leads trabajados · </>}
+              {seleccionado.actividades_totales != null && <>{num(seleccionado.actividades_totales)} actividades registradas</>}
+            </p>
+          )}
         </Seccion>
       )}
-
-      {/* Semana pasada / próxima semana (calendario S1-S4 real) ------------- */}
-      <Seccion
-        titulo="Cierre de la semana"
-        descripcion={
-          seleccionado
-            ? `Lo que ${seleccionado.nombre_corto} cerró la semana pasada y lo que tiene proyectado para la próxima, con fechas reales de HubSpot.`
-            : "Lo que el equipo cerró la semana pasada y lo que tiene proyectado para la próxima, con fechas reales de HubSpot."
-        }
-      >
-        <div className="grid gap-3 lg:grid-cols-2">
-          <ProductosSemanaPasada rango={semanaPasada.rango} filas={semanaPasada.filas} />
-          <ProyeccionSemana rango={proyeccion.rango} filas={proyeccion.filas} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-        </div>
-      </Seccion>
-
-      {/* Copiloto: acciones prioritarias -------------------------------------
-          "Alertas de producto inactivo" queda pendiente — necesita una
-          regla de tendencia histórica que todavía no está definida. */}
-      <Seccion
-        titulo="Acciones prioritarias del día"
-        descripcion={
-          seleccionado
-            ? `Tareas vencidas de ${seleccionado.nombre_corto}, ordenadas por el monto del negocio en riesgo.`
-            : "Tareas vencidas de todo el equipo, ordenadas por el monto del negocio en riesgo."
-        }
-      >
-        <AccionesPrioritarias acciones={acciones} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-      </Seccion>
 
       <Seccion
         titulo="Focos rojos — negocios estancados"
@@ -340,33 +296,7 @@ export async function TorreDeControl({
         <AlertasHigiene alertas={higiene} />
       </Seccion>
 
-      <ActoHeader numero={3} color="#eda100" titulo="Análisis de fugas y salud del pipeline" subtitulo="Inteligencia" />
-
-      {/* Origen y canal de venta (Monday) -----------------------------------
-          A propósito solo mira los negocios que SÍ están en Monday -- esta
-          tarjeta responde "¿cómo se clasifican los negocios que Monday
-          capturó?", no "¿qué % de HubSpot tiene Monday?" (eso lo cubre la
-          alerta "ganado_sin_monday" de Focos rojos de auditoría, arriba). */}
-      <Seccion
-        titulo="Origen y canal de venta"
-        descripcion={
-          seleccionado
-            ? `Tipo de negocio y canal de origen de ${seleccionado.nombre_corto}, de los negocios registrados en Monday.`
-            : "Tipo de negocio y canal de origen del equipo, de los negocios registrados en Monday."
-        }
-      >
-        <div className="grid gap-3 lg:grid-cols-2">
-          <TipoNegocioResumen filas={operativoMonday.porTipoNegocio} />
-          <CanalesVenta filas={operativoMonday.porCanal} />
-        </div>
-        <p className="mt-3 text-[11px] text-ink-muted">
-          {operativoMonday.totalDeals} negocios de Monday clasificados aquí.
-          {operativoMonday.sinRegistroMonday > 0 && (
-            <> {operativoMonday.sinRegistroMonday} negocios ganados del periodo no están en Monday y por lo tanto no aparecen en esta
-            tarjeta — quedan como alerta en "Focos rojos de auditoría e higiene", arriba.</>
-          )}
-        </p>
-      </Seccion>
+      <ActoHeader numero={3} color="#eda100" titulo="Focos Rojos y Desglose Operativo" />
 
       {/* Motivos de pérdida -------------------------------------------------- */}
       <Seccion
@@ -380,34 +310,6 @@ export async function TorreDeControl({
         <MotivosPerdidaLista filas={perdidas} />
       </Seccion>
 
-      {/* Suite de analítica comercial ------------------------------------- */}
-      <Seccion
-        titulo={`Suite de analítica comercial — ${vistaTiempo === "trimestral" ? "Trimestral (Q3)" : "Mensual"}`}
-        descripcion={
-          seleccionado
-            ? `Analítica de ventas y actividad de ${seleccionado.nombre_corto}.`
-            : "Analítica de ventas y actividad de todo el equipo."
-        }
-      >
-        <div className="grid gap-3 lg:grid-cols-3">
-          <ActividadesPorTipoResumen filas={actividades} />
-          <TareasPorEstadoResumen filas={tareasEstado} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-          <GanadosPerdidosResumen datos={ganadosPerdidosResumen} />
-          <TamanoNegocioResumen filas={tamanoNegocio} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-          <HistorialCambiosResumen datos={historialCambios} />
-          <VelocidadNegociosResumen filas={velocidad} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-          <DistribucionPipeline filas={etapasActuales} />
-          <TratosEstancadosResumen filas={estancados10} />
-          <TopProductosResumen filas={ventasProducto} />
-        </div>
-
-        <div className="mt-3">
-          <EmbudoDetallado filas={embudoDetallado} />
-        </div>
-      </Seccion>
-
-      <ActoHeader numero={4} color="#4a3aa7" titulo="Detalle operativo" subtitulo="Transparencia" />
-
       {/* Ventas y productos cerrados ----------------------------------------- */}
       <Seccion
         titulo="Desglose de ventas y productos cerrados"
@@ -418,58 +320,6 @@ export async function TorreDeControl({
         }
       >
         <VentasProductosTabla filas={ventasProducto} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
-      </Seccion>
-
-      {/* Calidad de datos ------------------------------------------------- */}
-      <Seccion
-        titulo="Calidad de los datos"
-        descripcion={
-          seleccionado
-            ? `Registros de ${seleccionado.nombre_corto} que la capa de sanitización dejó marcados.`
-            : "Registros que la capa de sanitización dejó marcados. No rompen las métricas: quedan aparte."
-        }
-      >
-        {revisar.length === 0 ? (
-          <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
-            Ningún registro marcado en este periodo.
-          </Card>
-        ) : (
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse text-[13px]">
-                <thead>
-                  <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
-                    <th className="px-4 py-2.5 font-medium">Negocio</th>
-                    <th className="px-4 py-2.5 font-medium">Monto sin IVA</th>
-                    <th className="px-4 py-2.5 font-medium">Qué hay que hacer</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {revisar.slice(0, 25).map((d) => (
-                    <tr key={d.hubspot_id} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
-                      <td className="px-4 py-2.5 text-ink">{d.nombre ?? `#${d.hubspot_id}`}</td>
-                      <td className="px-4 py-2.5 tabular text-ink-soft">{dinero(d.monto_sin_iva)}</td>
-                      <td className="px-4 py-2.5">
-                        <ul className="space-y-1">
-                          {d.flags.map((f) => (
-                            <li key={f} className="text-[12px] text-[#8a6100]">
-                              {accionBandera(f, d)}
-                            </li>
-                          ))}
-                        </ul>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {revisar.length > 25 && (
-              <p className="border-t border-line bg-surface-sunk px-4 py-2 text-[11px] text-ink-muted">
-                Mostrando 25 de {revisar.length} registros marcados.
-              </p>
-            )}
-          </Card>
-        )}
       </Seccion>
     </>
   );
@@ -569,110 +419,6 @@ function NegociosEstancados({
   );
 }
 
-/** Tareas vencidas más importantes por monto del deal asociado — no una lista pasiva. */
-function AccionesPrioritarias({
-  acciones, mapaVendedores, mostrarVendedor,
-}: { acciones: AccionPrioritaria[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
-  if (acciones.length === 0) {
-    return (
-      <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
-        Sin tareas vencidas ni negocios estancados con datos suficientes en HubSpot.
-      </Card>
-    );
-  }
-
-  return (
-    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-      {acciones.map((a) => (
-        <Card key={`${a.tipo}-${a.hubspot_id}`} className="px-4 py-3.5">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
-            {a.tipo === "tarea_vencida" ? "Tarea vencida" : "Negocio estancado 30+ días"}
-          </p>
-          <p className="mt-1 text-[13px] font-medium text-ink">
-            {a.asunto ?? "Dar seguimiento"}
-            {a.empresa && <> — <span className="text-ink-soft">{a.empresa}</span></>}
-          </p>
-          <p className="mt-1 text-[12px] text-ink-soft">
-            {a.deal_nombre ?? "Negocio sin nombre"}
-            {a.deal_monto_con_iva != null && <> · <span className="tabular font-medium text-ink">{dinero(a.deal_monto_con_iva)}</span></>}
-          </p>
-          {a.correo_cliente && <p className="mt-0.5 truncate text-[11px] text-ink-muted" title={a.correo_cliente}>{a.correo_cliente}</p>}
-          <p className="mt-1.5 text-[12px] font-medium text-[#8a3b1f]">
-            {a.tipo === "tarea_vencida"
-              ? `Atrasada desde ${a.fecha ? new Date(a.fecha).toLocaleDateString("es-MX") : "—"}`
-              : "Contactar hoy — sin actividad registrada"}
-            {mostrarVendedor && a.vendedor_id && ` · ${mapaVendedores.get(a.vendedor_id) ?? "Sin asignar"}`}
-          </p>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-/** Existente vs. nuevo, respaldado por Monday cuando HubSpot no lo trae (ver v_deals_operativo). */
-function TipoNegocioResumen({ filas }: { filas: ResumenOperativoMonday["porTipoNegocio"] }) {
-  const total = filas.reduce((acc, f) => acc + f.deals, 0);
-  const etiquetas: Record<string, string> = { existente: "Existente", nuevo: "Nuevo", sin_canal: "Sin canal capturado" };
-
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Tipo de negocio</h3>
-      {total === 0 ? (
-        <p className="text-[13px] text-ink-soft">Sin negocios de Monday cruzados en este periodo.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {[...filas].sort((a, b) => b.deals - a.deals).map((f) => (
-            <li key={f.tipo} className="flex items-center gap-3 text-[12px]">
-              <span className="w-28 shrink-0 text-ink-soft">{etiquetas[f.tipo] ?? f.tipo}</span>
-              <div className="flex-1">
-                <div className="barra-pista">
-                  <div className="barra-valor" style={{ width: `${Math.max(2, (f.deals / total) * 100)}%`, backgroundColor: "#2a78d6" }} />
-                </div>
-              </div>
-              <span className="tabular w-32 shrink-0 text-right font-medium text-ink">
-                {f.deals} · {dinero(f.monto_con_iva)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-/** Canal de origen real (Monday "¿Cómo llegó?"). */
-function CanalesVenta({ filas }: { filas: ResumenOperativoMonday["porCanal"] }) {
-  const total = filas.reduce((acc, f) => acc + f.deals, 0);
-
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Canal de origen</h3>
-      {total === 0 ? (
-        <p className="text-[13px] text-ink-soft">Sin negocios de Monday cruzados en este periodo.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {filas.slice(0, 8).map((f) => (
-            <li key={f.canal} className="flex items-center gap-3 text-[12px]">
-              <span className="w-28 shrink-0 truncate text-ink-soft" title={f.canal}>{f.canal}</span>
-              <div className="flex-1">
-                <div className="barra-pista">
-                  <div className="barra-valor" style={{ width: `${Math.max(2, (f.deals / total) * 100)}%`, backgroundColor: "#5598e7" }} />
-                </div>
-              </div>
-              <span className="tabular w-32 shrink-0 text-right font-medium text-ink">
-                {f.deals} · {dinero(f.monto_con_iva)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="mt-2 text-[11px] text-ink-muted">
-        En vista grupal, un negocio dividido entre dos vendedores cuenta una vez por cada uno.
-      </p>
-    </Card>
-  );
-}
-
 /** Catálogo real de categoria_perdida — no una lista inventada de motivos. */
 function MotivosPerdidaLista({ filas }: { filas: MotivoPerdida[] }) {
   const total = filas.reduce((acc, f) => acc + f.deals, 0);
@@ -706,37 +452,6 @@ function MotivosPerdidaLista({ filas }: { filas: MotivoPerdida[] }) {
   );
 }
 
-/**
- * Traduce una bandera de sanitización en la instrucción concreta para
- * resolverla. Estas son tareas de administración de HubSpot (asignar owner, corregir
- * un duplicado, mapear una etapa) -- no son del vendedor dueño del deal,
- * así que NUNCA se prefijan con un nombre de persona. Antes decían
- * "Pricila:" fijo, lo que se leía como "otro ejecutivo se metió a mi
- * vista" al filtrar por cualquier otro vendedor -- era solo el texto de
- * la acción, el negocio sí pertenecía al vendedor filtrado.
- */
-function accionBandera(flag: string, d: DealPorRevisar): string {
-  const negocio = d.nombre ?? `#${d.hubspot_id}`;
-  switch (flag) {
-    case "owner_vacio":
-    case "owner_sin_mapear":
-      return `Admin: asignar vendedor a "${negocio}" en HubSpot.`;
-    case "diferido_sin_fecha_reactivacion":
-      return `Admin: definir fecha de reactivación en HubSpot para "${negocio}".`;
-    case "monto_faltante":
-      return `Admin: capturar el monto de "${negocio}" en HubSpot.`;
-    case "duplicado":
-      return `Admin: revisar posible duplicado de "${negocio}".`;
-    case "fuera_de_periodo":
-      return `Admin: revisar la fecha de cierre de "${negocio}" — cae fuera del periodo esperado.`;
-    case "etapa_desconocida":
-      return `Admin: etapa no reconocida en "${negocio}", revisar el pipeline en HubSpot.`;
-    case "division_doble_conteo":
-      return `Admin: confirmar en Monday si "${negocio}" es una división antes de contarlo dos veces.`;
-    default:
-      return `Admin: revisar "${negocio}" (${flag.replaceAll("_", " ")}).`;
-  }
-}
 
 /**
  * "Empresa / Agencia" viene de una columna de Monday que a veces queda
@@ -848,82 +563,6 @@ function AlertasHigiene({ alertas }: { alertas: AlertaAuditoria[] }) {
   );
 }
 
-function rangoTexto(r: RangoSemana | null): string {
-  if (!r) return "sin calendario de semanas configurado";
-  return `${r.inicio} al ${r.fin}`;
-}
-
-/** Productos ganados en la semana pasada (fecha_cierre real), cruzados con Monday. */
-function ProductosSemanaPasada({ rango, filas }: { rango: RangoSemana | null; filas: ProductoSemana[] }) {
-  const total = filas.reduce((acc, f) => acc + f.monto_con_iva, 0);
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Semana pasada</h3>
-      <p className="mb-2.5 text-[11px] text-ink-muted">{rangoTexto(rango)}</p>
-      {filas.length === 0 ? (
-        <p className="text-[13px] text-ink-soft">Sin negocios ganados con fecha de cierre en esa semana.</p>
-      ) : (
-        <>
-          <ul className="space-y-1.5">
-            {filas.map((f) => (
-              <li key={f.producto} className="flex items-center gap-3 text-[12px]">
-                <span className="w-32 shrink-0 truncate text-ink-soft" title={f.producto}>{f.producto}</span>
-                <div className="flex-1">
-                  <div className="barra-pista">
-                    <div className="barra-valor" style={{ width: `${Math.max(2, (f.monto_con_iva / total) * 100)}%`, backgroundColor: "#1f9d55" }} />
-                  </div>
-                </div>
-                <span className="tabular w-28 shrink-0 text-right font-medium text-ink">
-                  {f.deals} · {dinero(f.monto_con_iva)}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 border-t border-line pt-2 text-[12px] font-medium text-ink">Total: {dinero(total)}</p>
-        </>
-      )}
-    </Card>
-  );
-}
-
-/** Negocios en Cotización/Seguimiento 3-4 con fecha de cierre estimada la próxima semana. */
-function ProyeccionSemana({
-  rango, filas, mapaVendedores, mostrarVendedor,
-}: { rango: RangoSemana | null; filas: DealProyectado[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
-  const total = filas.reduce((acc, f) => acc + (f.monto_con_iva ?? 0), 0);
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Proyección próxima semana</h3>
-      <p className="mb-2.5 text-[11px] text-ink-muted">{rangoTexto(rango)} · Cotización y Seguimiento 3-4</p>
-      {filas.length === 0 ? (
-        <p className="text-[13px] text-ink-soft">Sin negocios en esas etapas con cierre estimado esa semana.</p>
-      ) : (
-        <>
-          <ul className="space-y-2">
-            {filas.slice(0, 8).map((f) => (
-              <li key={f.hubspot_id} className="flex items-center justify-between gap-3 border-b border-line/70 pb-1.5 text-[12px] last:border-0">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-ink" title={f.nombre ?? f.hubspot_id}>{f.nombre ?? `#${f.hubspot_id}`}</p>
-                  <p className="text-ink-muted">
-                    {nombreEtapa(f.etapa_actual)}
-                    {mostrarVendedor && f.vendedor_id && ` · ${mapaVendedores.get(f.vendedor_id) ?? "Sin asignar"}`}
-                  </p>
-                </div>
-                <span className="shrink-0 tabular font-medium text-ink">{dinero(f.monto_con_iva)}</span>
-              </li>
-            ))}
-            {filas.length > 8 && <li className="text-[11px] text-ink-muted">y {filas.length - 8} más…</li>}
-          </ul>
-          <p className="mt-2 border-t border-line pt-2 text-[12px] font-medium text-ink">
-            Proyectado a cerrar: {dinero(total)}
-            <span className="ml-1 font-normal text-ink-muted">— estimado, no garantizado</span>
-          </p>
-        </>
-      )}
-    </Card>
-  );
-}
-
 /** Banner visual de cada Acto -- pill de color + título, para que la narrativa de la página se note en pantalla, no solo en el código. */
 function ActoHeader({ numero, color, titulo, subtitulo }: { numero: number; color: string; titulo: string; subtitulo?: string }) {
   return (
@@ -939,288 +578,6 @@ function ActoHeader({ numero, color, titulo, subtitulo }: { numero: number; colo
         {subtitulo && <span className="ml-1.5 text-[13px] font-normal text-ink-muted">— {subtitulo}</span>}
       </h2>
     </div>
-  );
-}
-
-/** Tooltip informativo: icono con el texto en el `title` nativo, mismo patrón que CalidadBadge en ui.tsx. */
-function InfoTip({ texto }: { texto: string }) {
-  return (
-    <span className="ml-1.5 inline-flex cursor-help items-center text-[11px] text-ink-muted" title={texto} aria-label={texto}>
-      ℹ️
-    </span>
-  );
-}
-
-const ETIQUETA_ACTIVIDAD_DISPLAY: Record<string, string> = {
-  Tarea: "Tareas cerradas",
-  Nota: "Notas / Minutas registradas",
-  Reunión: "Juntas y demos agendadas",
-  Llamada: "Llamadas registradas",
-};
-
-/** #1 Actividades finalizadas por tipo. */
-function ActividadesPorTipoResumen({ filas }: { filas: ActividadPorTipo[] }) {
-  const total = filas.reduce((acc, f) => acc + f.total, 0);
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-2.5 flex items-center text-[13px] font-semibold text-ink">
-        Bitácora de seguimiento (CRM)
-        <InfoTip texto="Suma de interacciones registradas automáticamente por sincronización (Calendar/Meet) o de forma manual en la ficha del cliente." />
-      </h3>
-      {total === 0 ? (
-        <p className="text-[13px] text-ink-soft">Sin actividades registradas en este periodo.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {filas.map((f) => (
-            <li key={f.tipo} className="flex items-center justify-between text-[12px]">
-              <span className="text-ink-soft">{ETIQUETA_ACTIVIDAD_DISPLAY[f.tipo] ?? f.tipo}</span>
-              <span className="tabular font-medium text-ink">{num(f.total)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-/** #5 Tareas terminadas vs. sin iniciar, por vendedor. */
-function TareasPorEstadoResumen({
-  filas, mapaVendedores, mostrarVendedor,
-}: { filas: TareasPorEstado[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
-  const totalCompletadas = filas.reduce((acc, f) => acc + f.completadas, 0);
-  const totalSinIniciar = filas.reduce((acc, f) => acc + f.sin_iniciar, 0);
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-2.5 flex items-center text-[13px] font-semibold text-ink">
-        Gestión de tareas
-        <InfoTip texto="Incluye tareas programadas pendientes de ejecutar y tareas con fecha vencida en HubSpot." />
-      </h3>
-      <div className="mb-2 flex items-center justify-between text-[13px]">
-        <span className="text-ink-soft">Completadas a tiempo</span>
-        <span className="tabular font-medium text-[#1f9d55]">{num(totalCompletadas)}</span>
-      </div>
-      <div className="mb-2 flex items-center justify-between text-[13px]">
-        <span className="text-ink-soft">Pendientes y atrasadas</span>
-        <span className="tabular font-medium text-[#8a3b1f]">{num(totalSinIniciar)}</span>
-      </div>
-      {mostrarVendedor && filas.length > 0 && (
-        <ul className="mt-2 space-y-1 border-t border-line pt-2">
-          {filas.map((f) => (
-            <li key={f.vendedor_id ?? "sin-asignar"} className="flex items-center justify-between text-[11px] text-ink-muted">
-              <span>{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</span>
-              <span className="tabular">{f.completadas} / {f.completadas + f.sin_iniciar}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-/** #10 Ganados vs. perdidos y tasa de ganados. */
-function GanadosPerdidosResumen({ datos }: { datos: GanadosPerdidos }) {
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Ganados vs. perdidos</h3>
-      <div className="flex items-baseline justify-between">
-        <span className="text-[26px] font-semibold text-ink">{pct(datos.tasaGanadosPct)}</span>
-        <span className="text-[11px] text-ink-muted">tasa de ganados</span>
-      </div>
-      <p className="mt-1.5 text-[12px] text-ink-soft">
-        <span className="font-medium text-[#1f9d55]">{num(datos.ganados)}</span> ganados ·{" "}
-        <span className="font-medium text-[#c0392b]">{num(datos.perdidos)}</span> perdidos
-      </p>
-    </Card>
-  );
-}
-
-/** #6 Ticket promedio general y por vendedor. */
-function TamanoNegocioResumen({
-  filas, mapaVendedores, mostrarVendedor,
-}: { filas: TamanoNegocio[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
-  const totalDeals = filas.reduce((acc, f) => acc + f.deals, 0);
-  const totalMonto = filas.reduce((acc, f) => acc + f.ticket_promedio_con_iva * f.deals, 0);
-  const general = totalDeals > 0 ? totalMonto / totalDeals : 0;
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Tamaño promedio de negocio</h3>
-      <p className="mb-2 text-[20px] font-semibold text-ink">{dinero(general)}</p>
-      {mostrarVendedor && filas.length > 0 && (
-        <ul className="space-y-1 border-t border-line pt-2">
-          {filas.map((f) => (
-            <li key={f.vendedor_id ?? "sin-asignar"} className="flex items-center justify-between text-[11px] text-ink-muted">
-              <span>{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</span>
-              <span className="tabular">{dinero(f.ticket_promedio_con_iva)} ({f.deals})</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-/** #7 Historial de cambios: nuevo / avanzó / retrocedió. No incluye fecha de cierre adelantada/pospuesta -- no se captura hoy. */
-function HistorialCambiosResumen({ datos }: { datos: HistorialCambios }) {
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Historial de cambios</h3>
-      <ul className="space-y-1.5 text-[13px]">
-        <li className="flex items-center justify-between"><span className="text-ink-soft">Nuevo</span><span className="tabular font-medium text-ink">{num(datos.nuevo)}</span></li>
-        <li className="flex items-center justify-between"><span className="text-ink-soft">Etapa avanzó</span><span className="tabular font-medium text-[#1f9d55]">{num(datos.avanzo)}</span></li>
-        <li className="flex items-center justify-between"><span className="text-ink-soft">Etapa retrocedió</span><span className="tabular font-medium text-[#c0392b]">{num(datos.retrocedio)}</span></li>
-      </ul>
-    </Card>
-  );
-}
-
-/** #9 Días promedio para el cierre, general y por vendedor -- calculado del historial real de etapas. */
-function VelocidadNegociosResumen({
-  filas, mapaVendedores, mostrarVendedor,
-}: { filas: VelocidadNegocio[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
-  const totalDeals = filas.reduce((acc, f) => acc + f.deals, 0);
-  const totalDias = filas.reduce((acc, f) => acc + f.dias_promedio_cierre * f.deals, 0);
-  const general = totalDeals > 0 ? totalDias / totalDeals : null;
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Velocidad de negocios</h3>
-      <p className="mb-2 text-[20px] font-semibold text-ink">{dias(general)}</p>
-      {mostrarVendedor && filas.length > 0 && (
-        <ul className="space-y-1 border-t border-line pt-2">
-          {filas.map((f) => (
-            <li key={f.vendedor_id ?? "sin-asignar"} className="flex items-center justify-between text-[11px] text-ink-muted">
-              <span>{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</span>
-              <span className="tabular">{dias(f.dias_promedio_cierre)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-/** #8 Embudo con % de conversión acumulada y días promedio entre pasos, del historial real de etapas. */
-function EmbudoDetallado({ filas }: { filas: PasoEmbudo[] }) {
-  const hayDatos = filas.some((f) => f.deals > 0);
-  if (!hayDatos) {
-    return (
-      <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
-        Sin historial de etapas para este periodo.
-      </Card>
-    );
-  }
-  return (
-    <Card className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px] border-collapse text-[13px]">
-          <thead>
-            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
-              <th className="px-4 py-2.5 font-medium">Etapa</th>
-              <th className="px-4 py-2.5 font-medium">Negocios</th>
-              <th className="px-4 py-2.5 font-medium">% conversión acumulada</th>
-              <th className="px-4 py-2.5 font-medium">Días desde el paso anterior</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filas.map((f) => (
-              <tr key={f.etapa} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
-                <td className="px-4 py-2.5 text-ink">{f.label}</td>
-                <td className="px-4 py-2.5 tabular text-ink-soft">{num(f.deals)}</td>
-                <td className="px-4 py-2.5 tabular text-ink-soft">{pct(f.pctConversionAcumulada)}</td>
-                <td className="px-4 py-2.5 tabular text-ink-soft">{dias(f.diasPromedioDesdeAnterior)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-/** Distribución del pipeline abierto por etapa: cuántos negocios y cuánto dinero hay en cada fase ahora mismo. */
-function DistribucionPipeline({ filas }: { filas: Array<{ etapa_actual: string; monto_con_iva: number | null }> }) {
-  const abiertas = filas.filter((f) => etapaInfo(f.etapa_actual)?.resultado === "abierto");
-  if (abiertas.length === 0) {
-    return <p className="text-[13px] text-ink-soft">Sin negocios abiertos en el pipeline este periodo.</p>;
-  }
-  const mapa = new Map<string, { deals: number; monto: number }>();
-  for (const f of abiertas) {
-    const cur = mapa.get(f.etapa_actual) ?? { deals: 0, monto: 0 };
-    cur.deals += 1;
-    cur.monto += f.monto_con_iva ?? 0;
-    mapa.set(f.etapa_actual, cur);
-  }
-  const etapasConDatos = ETAPAS_PIPELINE.filter((e) => e.resultado === "abierto" && mapa.has(e.id));
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Distribución de pipeline por etapa</h3>
-      <ul className="space-y-1.5">
-        {etapasConDatos.map((e) => {
-          const v = mapa.get(e.id)!;
-          return (
-            <li key={e.id} className="flex items-center justify-between gap-3 text-[12px]">
-              <span className="truncate text-ink-soft" title={e.label}>{e.label}</span>
-              <span className="tabular shrink-0 font-medium text-ink">{num(v.deals)} · {dinero(v.monto)}</span>
-            </li>
-          );
-        })}
-      </ul>
-    </Card>
-  );
-}
-
-/** Negocios sin avance real en los últimos 10 días. */
-function TratosEstancadosResumen({ filas }: { filas: DealEstancado[] }) {
-  const monto = filas.reduce((acc, f) => acc + (f.monto_con_iva ?? 0), 0);
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Tratos estancados (10+ días)</h3>
-      <p className="mb-2 text-[20px] font-semibold text-ink">{num(filas.length)}</p>
-      {filas.length === 0 ? (
-        <p className="text-[12px] text-ink-soft">Sin negocios estancados este periodo.</p>
-      ) : (
-        <>
-          <p className="text-[12px] text-ink-soft">{dinero(monto)} en riesgo de enfriarse</p>
-          <ul className="mt-2 space-y-1 border-t border-line pt-2">
-            {filas.slice(0, 4).map((f) => (
-              <li key={f.hubspot_id} className="flex items-center justify-between gap-2 text-[11px] text-ink-muted">
-                <span className="truncate" title={f.nombre ?? f.hubspot_id}>{f.nombre ?? `#${f.hubspot_id}`}</span>
-                <span className="tabular shrink-0">{f.dias_sin_actividad}d</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </Card>
-  );
-}
-
-/** Top 5 combinaciones de producto/servicio con más monto vendido (Monday), del periodo filtrado. */
-function TopProductosResumen({ filas }: { filas: VentaProducto[] }) {
-  const mapa = new Map<string, { deals: number; monto: number }>();
-  for (const f of filas) {
-    const clave = f.productos?.trim() || "Sin producto capturado en Monday";
-    const cur = mapa.get(clave) ?? { deals: 0, monto: 0 };
-    cur.deals += 1;
-    cur.monto += f.monto_con_iva ?? 0;
-    mapa.set(clave, cur);
-  }
-  const top = [...mapa.entries()].sort((a, b) => b[1].monto - a[1].monto).slice(0, 5);
-  return (
-    <Card className="px-4 py-4">
-      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Top productos/servicios vendidos</h3>
-      {top.length === 0 ? (
-        <p className="text-[13px] text-ink-soft">Sin ventas con producto capturado este periodo.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {top.map(([producto, v]) => (
-            <li key={producto} className="flex items-center justify-between gap-3 text-[12px]">
-              <span className="truncate text-ink-soft" title={producto}>{producto}</span>
-              <span className="tabular shrink-0 font-medium text-ink">{dinero(v.monto)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
   );
 }
 
@@ -1311,7 +668,9 @@ function CoachComercial({ acciones }: { acciones: AccionCoach[] }) {
 }
 
 /** Disciplina Comercial: retos S1-S4 del calendario real de periodo_semanas, racha y alerta de abandono de CRM. */
-function DisciplinaComercial({ disciplina }: { disciplina: TDisciplinaComercial }) {
+function DisciplinaComercial({
+  disciplina, tareasAtrasadas,
+}: { disciplina: TDisciplinaComercial; tareasAtrasadas?: number }) {
   const { semanas, rachaSemanas, alerta } = disciplina;
   if (semanas.length === 0) {
     return <p className="text-[13px] text-ink-soft">Sin calendario de semanas (S1-S4) configurado para este periodo.</p>;
@@ -1327,6 +686,11 @@ function DisciplinaComercial({ disciplina }: { disciplina: TDisciplinaComercial 
         >
           🔥 Racha de Disciplina: {rachaSemanas} semana{rachaSemanas === 1 ? "" : "s"} consecutiva{rachaSemanas === 1 ? "" : "s"}
         </div>
+        {!!tareasAtrasadas && tareasAtrasadas > 0 && (
+          <div className="rounded-full border border-[#f4cbb6] bg-[#fdeee7] px-3 py-1 text-[12px] font-medium text-[#a04a25]">
+            ⏰ {tareasAtrasadas} tarea{tareasAtrasadas === 1 ? "" : "s"} atrasada{tareasAtrasadas === 1 ? "" : "s"}
+          </div>
+        )}
         {alerta && (
           <div className="rounded-full border border-[#f3c2c2] bg-[#fdecec] px-3 py-1 text-[12px] font-medium text-[#d03b3b]">
             {alerta}

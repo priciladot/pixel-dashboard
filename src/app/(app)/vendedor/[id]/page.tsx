@@ -1,10 +1,9 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { esDireccion, requiereSesion } from "@/lib/auth";
-import { benchmarks, contextoMercado, evaluacionDe, historicoDe, kpiDe, perfilPorId, periodos } from "@/lib/queries";
+import { contextoMercado, evaluacionDe, historicoDe, perfilPorId, periodos } from "@/lib/queries";
 import { Card, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
-import { Brecha } from "@/components/Brecha";
 import { Acciones } from "@/components/Acciones";
 import { Historico } from "@/components/Historico";
 import { TorreDeControl } from "@/components/TorreDeControl";
@@ -17,7 +16,7 @@ export default async function VistaVendedor({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ periodo?: string; ventana?: string; vista?: string }>;
+  searchParams: Promise<{ periodo?: string; ventana?: string }>;
 }) {
   const sesion = await requiereSesion();
   const { id } = await params;
@@ -39,10 +38,8 @@ export default async function VistaVendedor({
   const ventana: Ventana = sp.ventana === "calendario" ? "calendario" : "kpi_4_semanas";
   const periodo = lista.find((p) => p.id === periodoId)!;
 
-  const [kpi, evaluacion, estandares, contexto, hist] = await Promise.all([
-    kpiDe(persona.id, periodoId, ventana),
+  const [evaluacion, contexto, hist] = await Promise.all([
     evaluacionDe(persona.id, periodoId),
-    benchmarks(),
     contextoMercado(periodoId),
     historicoDe(persona.id, ventana),
   ]);
@@ -67,7 +64,7 @@ export default async function VistaVendedor({
           )}
         </div>
         <Suspense fallback={null}>
-          <Filtros periodos={lista} mostrarVistaTiempo />
+          <Filtros periodos={lista} />
         </Suspense>
       </div>
 
@@ -77,19 +74,10 @@ export default async function VistaVendedor({
       <TorreDeControl
         periodoIdParam={sp.periodo}
         ventanaParam={sp.ventana}
-        vistaParam={sp.vista}
         vendedorIdForzado={persona.id}
         mostrarFiltroVendedor={false}
         mostrarEncabezado={false}
       />
-
-      {/* Brecha -------------------------------------------------------- */}
-      <Seccion
-        titulo="Análisis de brecha / eficiencia operativa"
-        descripcion="Actividad capturada en el semáforo (correos, leads, actividades) contra el estándar universal -- complementa la Suite de Analítica de arriba, que es 100% HubSpot."
-      >
-        <Brecha filas={evaluacion?.brecha ?? []} kpi={kpi} estandares={estandares} />
-      </Seccion>
 
       {/* Evaluación cualitativa --------------------------------------------- */}
       {evaluacion && (
