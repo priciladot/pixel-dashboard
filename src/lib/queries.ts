@@ -1,5 +1,5 @@
 import { createClient } from "./supabase/server";
-import { etapaInfo, nombreEtapa } from "./pipeline-etapas";
+import { etapaInfo, nombreEtapa, ETAPAS_PIPELINE } from "./pipeline-etapas";
 import { dinero } from "./format";
 import type {
   Accion, Benchmark, ContextoMercado, Evaluacion, FilaBrecha,
@@ -750,4 +750,311 @@ export async function proyeccionProximaSemana(vendedorId?: string): Promise<{ ra
       .map((d) => ({ ...d, fecha_cierre: fechaPorId.get(d.hubspot_id) ?? null }))
       .sort((a, b) => (b.monto_con_iva ?? 0) - (a.monto_con_iva ?? 0)),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Suite de analítica de ventas -- Mensual vs. Trimestral               */
+/* ------------------------------------------------------------------ */
+
+export type VistaTiempo = "mensual" | "trimestral";
+
+/**
+ * PostgREST manda los filtros .in(...) en el query string de un GET -- con
+ * un trimestre completo (mil y pico deals) esa lista puede pasarse de largo
+ * y fallar con una URL demasiado larga. Se parte en lotes chicos y se junta
+ * el resultado, en vez de mandar un solo .in() con todo.
+ */
+async function porLotes<R>(ids: string[], tamano: number, fn: (lote: string[]) => Promise<R[]>): Promise<R[]> {
+  const resultados: R[] = [];
+  for (let i = 0; i < ids.length; i += tamano) {
+    resultados.push(...(await fn(ids.slice(i, i + tamano))));
+  }
+  return resultados;
+}
+
+/**
+ * Un mes -> [ese periodo]. Un trimestre -> los 3 periodos del mismo año y
+ * trimestre calendario (jul-ago-sep, etc.), sin importar si el periodo
+ * elegido es el primero, segundo o tercer mes de ese trimestre.
+ */
+async function resolverPeriodoIds(
+  supabase: Awaited<ReturnType<typeof createClient>>, periodoId: string, vista: VistaTiempo,
+): Promise<string[]> {
+  if (vista === "mensual") return [periodoId];
+
+  const { data: base } = await supabase.from("periodos").select("anio, mes").eq("id", periodoId).maybeSingle();
+  if (!base) return [periodoId];
+
+  const trimestre = Math.ceil(base.mes / 3);
+  const mesInicio = (trimestre - 1) * 3 + 1;
+  const { data } = await supabase.from("periodos").select("id")
+    .eq("anio", base.anio).gte("mes", mesInicio).lte("mes", mesInicio + 2);
+  const ids = ((data as Array<{ id: string }>) ?? []).map((p) => p.id);
+  return ids.length > 0 ? ids : [periodoId];
+}
+
+export interface ActividadPorTipo { tipo: string; total: number }
+
+/** Actividades registradas en HubSpot por tipo, para los deals del/los periodo(s) elegido(s). */
+export async function actividadesPorTipo(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<ActividadPorTipo[]> {
+  const supabase = await createClient();
+  const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+
+  let qDeals = supabase.from("hubspot_deals").select("hubspot_id").in("periodo_id", periodoIds);
+  if (vendedorId) qDeals = qDeals.eq("vendedor_id", vendedorId);
+  const { data: deals } = await qDeals.limit(2000);
+  const dealIds = ((deals as Array<{ hubspot_id: string }>) ?? []).map((d) => d.hubspot_id);
+  if (dealIds.length === 0) return [];
+
+  const filas = await porLotes(dealIds, 200, async (lote) => {
+    const { data } = await supabase.from("hubspot_engagements").select("tipo").in("deal_id_ref", lote).limit(5000);
+    return (data as Array<{ tipo: string }>) ?? [];
+  });
+  const conteo = new Map<string, number>();
+  for (const r of filas) conteo.set(r.tipo, (conteo.get(r.tipo) ?? 0) + 1);
+
+  const ETIQUETA: Record<string, string> = { call: "Llamada", email: "Correo enviado", meeting: "Reunión", note: "Nota", task: "Tarea" };
+  return Object.entries(ETIQUETA)
+    .map(([tipo, etiqueta]) => ({ tipo: etiqueta, total: conteo.get(tipo) ?? 0 }))
+    .sort((a, b) => b.total - a.total);
+}
+
+export interface TareasPorEstado {
+  vendedor_id: string | null;
+  completadas: number;
+  sin_iniciar: number;
+}
+
+/** Tareas de HubSpot terminadas vs. sin iniciar, por vendedor, para los deals del/los periodo(s). */
+export async function tareasPorEstado(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<TareasPorEstado[]> {
+  const supabase = await createClient();
+  const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+
+  let qDeals = supabase.from("hubspot_deals").select("hubspot_id").in("periodo_id", periodoIds);
+  if (vendedorId) qDeals = qDeals.eq("vendedor_id", vendedorId);
+  const { data: deals } = await qDeals.limit(2000);
+  const dealIds = ((deals as Array<{ hubspot_id: string }>) ?? []).map((d) => d.hubspot_id);
+  if (dealIds.length === 0) return [];
+
+  const filas = await porLotes(dealIds, 200, async (lote) => {
+    const { data } = await supabase.from("hubspot_engagements")
+      .select("vendedor_id, estado").eq("tipo", "task").in("deal_id_ref", lote).limit(5000);
+    return (data as Array<{ vendedor_id: string | null; estado: string | null }>) ?? [];
+  });
+
+  const mapa = new Map<string | null, { completadas: number; sin_iniciar: number }>();
+  for (const r of filas) {
+    const cur = mapa.get(r.vendedor_id) ?? { completadas: 0, sin_iniciar: 0 };
+    if (r.estado === "COMPLETED") cur.completadas += 1; else cur.sin_iniciar += 1;
+    mapa.set(r.vendedor_id, cur);
+  }
+  return [...mapa.entries()]
+    .map(([vendedor_id, v]) => ({ vendedor_id, completadas: v.completadas, sin_iniciar: v.sin_iniciar }))
+    .sort((a, b) => (b.completadas + b.sin_iniciar) - (a.completadas + a.sin_iniciar));
+}
+
+export interface TamanoNegocio {
+  vendedor_id: string | null;
+  deals: number;
+  ticket_promedio_con_iva: number;
+}
+
+/** Ticket promedio (monto con IVA / conteo), general y por vendedor, de deals ganados del/los periodo(s). */
+export async function tamanoPromedioNegocio(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<TamanoNegocio[]> {
+  const supabase = await createClient();
+  const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+
+  let q = supabase.from("hubspot_deals").select("vendedor_id, monto_con_iva")
+    .in("periodo_id", periodoIds).eq("cerrado_ganado", true);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(2000);
+
+  const mapa = new Map<string | null, { deals: number; monto: number }>();
+  for (const r of (data as Array<{ vendedor_id: string | null; monto_con_iva: number | null }>) ?? []) {
+    const cur = mapa.get(r.vendedor_id) ?? { deals: 0, monto: 0 };
+    cur.deals += 1;
+    cur.monto += r.monto_con_iva ?? 0;
+    mapa.set(r.vendedor_id, cur);
+  }
+  return [...mapa.entries()]
+    .map(([vendedor_id, v]) => ({ vendedor_id, deals: v.deals, ticket_promedio_con_iva: v.deals > 0 ? v.monto / v.deals : 0 }))
+    .sort((a, b) => b.ticket_promedio_con_iva - a.ticket_promedio_con_iva);
+}
+
+export interface HistorialCambios {
+  nuevo: number;
+  avanzo: number;
+  retrocedio: number;
+}
+
+/**
+ * Clasifica cada transición real de hubspot_deal_stages en Nuevo (primer
+ * registro del deal) / Etapa avanzó / Etapa retrocedió, comparando el orden
+ * de las etapas (pipeline-etapas.ts). NO incluye "fecha de cierre adelantó/
+ * pospuso" -- eso requiere historial de closedate, que no se captura hoy.
+ */
+export async function historialCambiosNegocio(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<HistorialCambios> {
+  const supabase = await createClient();
+  const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+
+  let qDeals = supabase.from("hubspot_deals").select("hubspot_id").in("periodo_id", periodoIds);
+  if (vendedorId) qDeals = qDeals.eq("vendedor_id", vendedorId);
+  const { data: deals } = await qDeals.limit(2000);
+  const dealIds = ((deals as Array<{ hubspot_id: string }>) ?? []).map((d) => d.hubspot_id);
+  if (dealIds.length === 0) return { nuevo: 0, avanzo: 0, retrocedio: 0 };
+
+  const filas = await porLotes(dealIds, 200, async (lote) => {
+    const { data } = await supabase.from("hubspot_deal_stages")
+      .select("etapa_anterior, etapa_nueva").in("hubspot_id", lote).limit(10_000);
+    return (data as Array<{ etapa_anterior: string | null; etapa_nueva: string }>) ?? [];
+  });
+
+  let nuevo = 0, avanzo = 0, retrocedio = 0;
+  for (const r of filas) {
+    if (!r.etapa_anterior) { nuevo += 1; continue; }
+    const anterior = etapaInfo(r.etapa_anterior)?.orden;
+    const nueva = etapaInfo(r.etapa_nueva)?.orden;
+    if (anterior == null || nueva == null) continue;
+    if (nueva > anterior) avanzo += 1; else if (nueva < anterior) retrocedio += 1;
+  }
+  return { nuevo, avanzo, retrocedio };
+}
+
+export interface PasoEmbudo {
+  etapa: string;
+  label: string;
+  deals: number;
+  pctConversionAcumulada: number;
+  diasPromedioDesdeAnterior: number | null;
+}
+
+/**
+ * Embudo con % de conversión acumulada (respecto al primer paso) y días
+ * promedio entre el paso anterior y este, calculado con hubspot_deal_stages
+ * -- no con fecha_creacion/fecha_cierre, que no distingue etapas.
+ */
+export async function embudoConConversion(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<PasoEmbudo[]> {
+  const supabase = await createClient();
+  const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+
+  let qDeals = supabase.from("hubspot_deals").select("hubspot_id").in("periodo_id", periodoIds);
+  if (vendedorId) qDeals = qDeals.eq("vendedor_id", vendedorId);
+  const { data: deals } = await qDeals.limit(2000);
+  const dealIds = ((deals as Array<{ hubspot_id: string }>) ?? []).map((d) => d.hubspot_id);
+  if (dealIds.length === 0) return [];
+
+  // Cada deal cae entero en un solo lote (se parte por lista de ids, no por
+  // fila), así que el orden cronológico POR DEAL se conserva aunque los
+  // lotes se junten sin volver a ordenar entre sí -- es lo único que le
+  // importa a "primera vez que tocó cada etapa" más abajo.
+  const historial = await porLotes(dealIds, 200, async (lote) => {
+    const { data } = await supabase.from("hubspot_deal_stages")
+      .select("hubspot_id, etapa_nueva, fecha_cambio").in("hubspot_id", lote).order("fecha_cambio", { ascending: true }).limit(10_000);
+    return (data as Array<{ hubspot_id: string; etapa_nueva: string; fecha_cambio: string }>) ?? [];
+  });
+
+  // Primera vez que cada deal tocó cada etapa -- así "días desde el paso anterior" no se ensucia con idas y vueltas.
+  const primeraVezPorDeal = new Map<string, Map<string, string>>();
+  for (const h of historial) {
+    const porEtapa = primeraVezPorDeal.get(h.hubspot_id) ?? new Map<string, string>();
+    if (!porEtapa.has(h.etapa_nueva)) porEtapa.set(h.etapa_nueva, h.fecha_cambio);
+    primeraVezPorDeal.set(h.hubspot_id, porEtapa);
+  }
+
+  const conteoPorEtapa = new Map<string, number>();
+  const diasPorEtapa = new Map<string, number[]>();
+  for (const porEtapa of primeraVezPorDeal.values()) {
+    for (const [etapa, fecha] of porEtapa.entries()) {
+      conteoPorEtapa.set(etapa, (conteoPorEtapa.get(etapa) ?? 0) + 1);
+      const info = etapaInfo(etapa);
+      if (!info || info.orden === 0) continue;
+      const anteriorId = ETAPAS_PIPELINE.find((e) => e.orden === info.orden - 1)?.id;
+      const fechaAnterior = anteriorId ? porEtapa.get(anteriorId) : undefined;
+      if (fechaAnterior) {
+        const dias = (new Date(fecha).getTime() - new Date(fechaAnterior).getTime()) / 86_400_000;
+        if (dias >= 0) diasPorEtapa.set(etapa, [...(diasPorEtapa.get(etapa) ?? []), dias]);
+      }
+    }
+  }
+
+  const base = conteoPorEtapa.get(ETAPAS_PIPELINE[0].id) ?? 0;
+  return ETAPAS_PIPELINE.map((e) => {
+    const deals = conteoPorEtapa.get(e.id) ?? 0;
+    const dias = diasPorEtapa.get(e.id);
+    return {
+      etapa: e.id,
+      label: e.label,
+      deals,
+      pctConversionAcumulada: base > 0 ? (deals / base) * 100 : 0,
+      diasPromedioDesdeAnterior: dias && dias.length > 0 ? dias.reduce((a, b) => a + b, 0) / dias.length : null,
+    };
+  });
+}
+
+export interface VelocidadNegocio {
+  vendedor_id: string | null;
+  deals: number;
+  dias_promedio_cierre: number;
+}
+
+/** Días reales desde la primera etapa del deal hasta que llegó a Ganado/Perdido -- no fecha_creacion/fecha_cierre en bruto. */
+export async function velocidadNegocios(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<VelocidadNegocio[]> {
+  const supabase = await createClient();
+  const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+
+  let qDeals = supabase.from("hubspot_deals").select("hubspot_id, vendedor_id, cerrado_ganado").in("periodo_id", periodoIds);
+  if (vendedorId) qDeals = qDeals.eq("vendedor_id", vendedorId);
+  const { data: deals } = await qDeals.limit(2000);
+  const cerrados = ((deals as Array<{ hubspot_id: string; vendedor_id: string | null; cerrado_ganado: boolean | null }>) ?? [])
+    .filter((d) => d.cerrado_ganado !== null);
+  if (cerrados.length === 0) return [];
+
+  const historialCierre = await porLotes(cerrados.map((d) => d.hubspot_id), 200, async (lote) => {
+    const { data } = await supabase.from("hubspot_deal_stages")
+      .select("hubspot_id, fecha_cambio").in("hubspot_id", lote)
+      .order("fecha_cambio", { ascending: true }).limit(10_000);
+    return (data as Array<{ hubspot_id: string; fecha_cambio: string }>) ?? [];
+  });
+
+  const rango = new Map<string, { primera: string; ultima: string }>();
+  for (const r of historialCierre) {
+    const cur = rango.get(r.hubspot_id);
+    if (!cur) rango.set(r.hubspot_id, { primera: r.fecha_cambio, ultima: r.fecha_cambio });
+    else cur.ultima = r.fecha_cambio;
+  }
+
+  const mapa = new Map<string | null, { deals: number; dias: number }>();
+  for (const d of cerrados) {
+    const r = rango.get(d.hubspot_id);
+    if (!r) continue;
+    const dias = (new Date(r.ultima).getTime() - new Date(r.primera).getTime()) / 86_400_000;
+    const cur = mapa.get(d.vendedor_id) ?? { deals: 0, dias: 0 };
+    cur.deals += 1;
+    cur.dias += dias;
+    mapa.set(d.vendedor_id, cur);
+  }
+  return [...mapa.entries()]
+    .map(([vendedor_id, v]) => ({ vendedor_id, deals: v.deals, dias_promedio_cierre: v.deals > 0 ? v.dias / v.deals : 0 }))
+    .sort((a, b) => a.dias_promedio_cierre - b.dias_promedio_cierre);
+}
+
+export interface GanadosPerdidos {
+  ganados: number;
+  perdidos: number;
+  tasaGanadosPct: number;
+}
+
+/** Recuento de cierres ganados vs. perdidos y % de tasa de ganados, del/los periodo(s) elegido(s). */
+export async function ganadosPerdidos(periodoId: string, vista: VistaTiempo, vendedorId?: string): Promise<GanadosPerdidos> {
+  const supabase = await createClient();
+  const periodoIds = await resolverPeriodoIds(supabase, periodoId, vista);
+
+  let q = supabase.from("hubspot_deals").select("cerrado_ganado").in("periodo_id", periodoIds).not("cerrado_ganado", "is", null);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(2000);
+
+  const filas = (data as Array<{ cerrado_ganado: boolean }>) ?? [];
+  const ganados = filas.filter((d) => d.cerrado_ganado).length;
+  const perdidos = filas.length - ganados;
+  return { ganados, perdidos, tasaGanadosPct: filas.length > 0 ? (ganados / filas.length) * 100 : 0 };
 }

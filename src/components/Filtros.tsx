@@ -5,8 +5,8 @@ import type { Perfil, Periodo } from "@/lib/types";
 
 /** Filtros en una sola fila arriba de los tableros. */
 export function Filtros({
-  periodos, vendedores = [], mostrarVentana = true,
-}: { periodos: Periodo[]; vendedores?: Perfil[]; mostrarVentana?: boolean }) {
+  periodos, vendedores = [], mostrarVentana = true, mostrarVistaTiempo = false,
+}: { periodos: Periodo[]; vendedores?: Perfil[]; mostrarVentana?: boolean; mostrarVistaTiempo?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -49,6 +49,16 @@ export function Filtros({
           <select className={clase} value={params.get("ventana") ?? "kpi_4_semanas"} onChange={(e) => set("ventana", e.target.value)}>
             <option value="kpi_4_semanas">KPI — 4 semanas (S1–S4)</option>
             <option value="calendario">Calendario — mes 1 al 31</option>
+          </select>
+        </label>
+      )}
+
+      {mostrarVistaTiempo && (
+        <label className="flex items-center gap-1.5 text-[12px] text-ink-soft">
+          Vista
+          <select className={clase} value={params.get("vista") ?? "mensual"} onChange={(e) => set("vista", e.target.value)}>
+            <option value="mensual">Mensual</option>
+            <option value="trimestral">Trimestral (Q del mes elegido)</option>
           </select>
         </label>
       )}

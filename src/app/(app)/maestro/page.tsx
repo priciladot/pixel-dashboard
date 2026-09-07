@@ -5,9 +5,13 @@ import {
   kpisDelPeriodo, periodos, resumenArea, vendedores, dealsPorRevisar,
   tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday,
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
+  actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
+  embudoConConversion, velocidadNegocios, ganadosPerdidos,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
-  type ProductoSemana, type DealProyectado, type RangoSemana,
+  type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
+  type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
+  type PasoEmbudo, type VelocidadNegocio, type GanadosPerdidos,
 } from "@/lib/queries";
 import { Card, KpiCard, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
@@ -21,7 +25,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Maestro({
   searchParams,
-}: { searchParams: Promise<{ periodo?: string; vendedor?: string; ventana?: string }> }) {
+}: { searchParams: Promise<{ periodo?: string; vendedor?: string; ventana?: string; vista?: string }> }) {
   await requiereRol("admin", "supervisor");
   const sp = await searchParams;
 
@@ -32,11 +36,13 @@ export default async function Maestro({
 
   const periodoId = sp.periodo && lista.some((p) => p.id === sp.periodo) ? sp.periodo : lista[0].id;
   const ventana: Ventana = sp.ventana === "calendario" ? "calendario" : "kpi_4_semanas";
+  const vistaTiempo: VistaTiempo = sp.vista === "trimestral" ? "trimestral" : "mensual";
   const periodo = lista.find((p) => p.id === periodoId)!;
 
   const [
     equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday,
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
+    actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
@@ -52,6 +58,13 @@ export default async function Maestro({
     alertasHigiene(periodoId, sp.vendedor, 5),
     productosSemanaPasada(sp.vendedor),
     proyeccionProximaSemana(sp.vendedor),
+    actividadesPorTipo(periodoId, vistaTiempo, sp.vendedor),
+    tareasPorEstado(periodoId, vistaTiempo, sp.vendedor),
+    tamanoPromedioNegocio(periodoId, vistaTiempo, sp.vendedor),
+    historialCambiosNegocio(periodoId, vistaTiempo, sp.vendedor),
+    embudoConConversion(periodoId, vistaTiempo, sp.vendedor),
+    velocidadNegocios(periodoId, vistaTiempo, sp.vendedor),
+    ganadosPerdidos(periodoId, vistaTiempo, sp.vendedor),
   ]);
 
   const filas = sp.vendedor ? equipo.filter((f) => f.vendedor_id === sp.vendedor) : equipo;
@@ -114,7 +127,7 @@ export default async function Maestro({
           </p>
         </div>
         <Suspense fallback={null}>
-          <Filtros periodos={lista} vendedores={personas.filter((p) => p.rol === "vendedor")} />
+          <Filtros periodos={lista} vendedores={personas.filter((p) => p.rol === "vendedor")} mostrarVistaTiempo />
         </Suspense>
       </div>
 
@@ -306,6 +319,34 @@ export default async function Maestro({
         }
       >
         <VentasProductosTabla filas={ventasProducto} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+      </Seccion>
+
+      {/* Suite de analítica de HubSpot (réplica) -----------------------------
+          3 de los 10 reportes originales no están aquí -- necesitan datos
+          que hoy no existen o no se capturan (ver NoDisponible más abajo),
+          no se simulan con datos inventados. */}
+      <Seccion
+        titulo={`Suite de analítica de HubSpot — ${vistaTiempo === "trimestral" ? "Trimestral (Q3)" : "Mensual"}`}
+        descripcion={
+          seleccionado
+            ? `Réplica de los reportes nativos de HubSpot para ${seleccionado.nombre_corto}.`
+            : "Réplica de los reportes nativos de HubSpot para todo el equipo."
+        }
+      >
+        <div className="grid gap-3 lg:grid-cols-3">
+          <ActividadesPorTipoResumen filas={actividades} />
+          <TareasPorEstadoResumen filas={tareasEstado} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+          <GanadosPerdidosResumen datos={ganadosPerdidosResumen} />
+          <TamanoNegocioResumen filas={tamanoNegocio} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+          <HistorialCambiosResumen datos={historialCambios} />
+          <VelocidadNegociosResumen filas={velocidad} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
+        </div>
+
+        <div className="mt-3">
+          <EmbudoDetallado filas={embudoDetallado} />
+        </div>
+
+        <NoDisponibleAnalitica />
       </Seccion>
 
       {/* Calidad de datos ------------------------------------------------- */}
@@ -776,5 +817,193 @@ function ProyeccionSemana({
         </>
       )}
     </Card>
+  );
+}
+
+/** #1 Actividades finalizadas por tipo. */
+function ActividadesPorTipoResumen({ filas }: { filas: ActividadPorTipo[] }) {
+  const total = filas.reduce((acc, f) => acc + f.total, 0);
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Actividades finalizadas</h3>
+      {total === 0 ? (
+        <p className="text-[13px] text-ink-soft">Sin actividades registradas en este periodo.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {filas.map((f) => (
+            <li key={f.tipo} className="flex items-center justify-between text-[12px]">
+              <span className="text-ink-soft">{f.tipo}</span>
+              <span className="tabular font-medium text-ink">{num(f.total)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-muted">
+        "Correo enviado" queda en 0 -- falta el scope crm.objects.emails.read en HubSpot.
+      </p>
+    </Card>
+  );
+}
+
+/** #5 Tareas terminadas vs. sin iniciar, por vendedor. */
+function TareasPorEstadoResumen({
+  filas, mapaVendedores, mostrarVendedor,
+}: { filas: TareasPorEstado[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
+  const totalCompletadas = filas.reduce((acc, f) => acc + f.completadas, 0);
+  const totalSinIniciar = filas.reduce((acc, f) => acc + f.sin_iniciar, 0);
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Tareas por estado</h3>
+      <div className="mb-2 flex items-center justify-between text-[13px]">
+        <span className="text-ink-soft">Terminadas</span>
+        <span className="tabular font-medium text-[#1f9d55]">{num(totalCompletadas)}</span>
+      </div>
+      <div className="mb-2 flex items-center justify-between text-[13px]">
+        <span className="text-ink-soft">Sin iniciar</span>
+        <span className="tabular font-medium text-[#8a3b1f]">{num(totalSinIniciar)}</span>
+      </div>
+      {mostrarVendedor && filas.length > 0 && (
+        <ul className="mt-2 space-y-1 border-t border-line pt-2">
+          {filas.map((f) => (
+            <li key={f.vendedor_id ?? "sin-asignar"} className="flex items-center justify-between text-[11px] text-ink-muted">
+              <span>{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</span>
+              <span className="tabular">{f.completadas} / {f.completadas + f.sin_iniciar}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** #10 Ganados vs. perdidos y tasa de ganados. */
+function GanadosPerdidosResumen({ datos }: { datos: GanadosPerdidos }) {
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Ganados vs. perdidos</h3>
+      <div className="flex items-baseline justify-between">
+        <span className="text-[26px] font-semibold text-ink">{pct(datos.tasaGanadosPct)}</span>
+        <span className="text-[11px] text-ink-muted">tasa de ganados</span>
+      </div>
+      <p className="mt-1.5 text-[12px] text-ink-soft">
+        <span className="font-medium text-[#1f9d55]">{num(datos.ganados)}</span> ganados ·{" "}
+        <span className="font-medium text-[#c0392b]">{num(datos.perdidos)}</span> perdidos
+      </p>
+    </Card>
+  );
+}
+
+/** #6 Ticket promedio general y por vendedor. */
+function TamanoNegocioResumen({
+  filas, mapaVendedores, mostrarVendedor,
+}: { filas: TamanoNegocio[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
+  const totalDeals = filas.reduce((acc, f) => acc + f.deals, 0);
+  const totalMonto = filas.reduce((acc, f) => acc + f.ticket_promedio_con_iva * f.deals, 0);
+  const general = totalDeals > 0 ? totalMonto / totalDeals : 0;
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Tamaño promedio de negocio</h3>
+      <p className="mb-2 text-[20px] font-semibold text-ink">{dinero(general)}</p>
+      {mostrarVendedor && filas.length > 0 && (
+        <ul className="space-y-1 border-t border-line pt-2">
+          {filas.map((f) => (
+            <li key={f.vendedor_id ?? "sin-asignar"} className="flex items-center justify-between text-[11px] text-ink-muted">
+              <span>{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</span>
+              <span className="tabular">{dinero(f.ticket_promedio_con_iva)} ({f.deals})</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** #7 Historial de cambios: nuevo / avanzó / retrocedió. No incluye fecha de cierre adelantada/pospuesta -- no se captura hoy. */
+function HistorialCambiosResumen({ datos }: { datos: HistorialCambios }) {
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-2.5 text-[13px] font-semibold text-ink">Historial de cambios</h3>
+      <ul className="space-y-1.5 text-[13px]">
+        <li className="flex items-center justify-between"><span className="text-ink-soft">Nuevo</span><span className="tabular font-medium text-ink">{num(datos.nuevo)}</span></li>
+        <li className="flex items-center justify-between"><span className="text-ink-soft">Etapa avanzó</span><span className="tabular font-medium text-[#1f9d55]">{num(datos.avanzo)}</span></li>
+        <li className="flex items-center justify-between"><span className="text-ink-soft">Etapa retrocedió</span><span className="tabular font-medium text-[#c0392b]">{num(datos.retrocedio)}</span></li>
+      </ul>
+    </Card>
+  );
+}
+
+/** #9 Días promedio para el cierre, general y por vendedor -- calculado del historial real de etapas. */
+function VelocidadNegociosResumen({
+  filas, mapaVendedores, mostrarVendedor,
+}: { filas: VelocidadNegocio[]; mapaVendedores: Map<string, string>; mostrarVendedor: boolean }) {
+  const totalDeals = filas.reduce((acc, f) => acc + f.deals, 0);
+  const totalDias = filas.reduce((acc, f) => acc + f.dias_promedio_cierre * f.deals, 0);
+  const general = totalDeals > 0 ? totalDias / totalDeals : null;
+  return (
+    <Card className="px-4 py-4">
+      <h3 className="mb-0.5 text-[13px] font-semibold text-ink">Velocidad de negocios</h3>
+      <p className="mb-2 text-[20px] font-semibold text-ink">{dias(general)}</p>
+      {mostrarVendedor && filas.length > 0 && (
+        <ul className="space-y-1 border-t border-line pt-2">
+          {filas.map((f) => (
+            <li key={f.vendedor_id ?? "sin-asignar"} className="flex items-center justify-between text-[11px] text-ink-muted">
+              <span>{f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar"}</span>
+              <span className="tabular">{dias(f.dias_promedio_cierre)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** #8 Embudo con % de conversión acumulada y días promedio entre pasos, del historial real de etapas. */
+function EmbudoDetallado({ filas }: { filas: PasoEmbudo[] }) {
+  const hayDatos = filas.some((f) => f.deals > 0);
+  if (!hayDatos) {
+    return (
+      <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
+        Sin historial de etapas para este periodo.
+      </Card>
+    );
+  }
+  return (
+    <Card className="overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[600px] border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+              <th className="px-4 py-2.5 font-medium">Etapa</th>
+              <th className="px-4 py-2.5 font-medium">Negocios</th>
+              <th className="px-4 py-2.5 font-medium">% conversión acumulada</th>
+              <th className="px-4 py-2.5 font-medium">Días desde el paso anterior</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.etapa} className="border-b border-line/70 last:border-0">
+                <td className="px-4 py-2.5 text-ink">{f.label}</td>
+                <td className="px-4 py-2.5 tabular text-ink-soft">{num(f.deals)}</td>
+                <td className="px-4 py-2.5 tabular text-ink-soft">{pct(f.pctConversionAcumulada)}</td>
+                <td className="px-4 py-2.5 tabular text-ink-soft">{dias(f.diasPromedioDesdeAnterior)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/** Los 3 reportes que no se pueden replicar hoy sin datos que no existen. */
+function NoDisponibleAnalitica() {
+  return (
+    <div className="mt-3 rounded-card border border-line bg-surface-sunk px-4 py-3 text-[12px] text-ink-muted">
+      <p className="mb-1 font-medium text-ink-soft">3 de los 10 reportes no están disponibles todavía:</p>
+      <ul className="list-disc space-y-0.5 pl-4">
+        <li><span className="font-medium">Embudo de leads</span> y <span className="font-medium">tiempo de respuesta de leads</span> — el objeto Leads de HubSpot está vacío en este portal (no habilitado, o sin permiso).</li>
+        <li><span className="font-medium">Resultados de reuniones</span> — nunca se pidió la propiedad de resultado (hs_meeting_outcome) al sincronizar; hay que ampliar la ingesta y volver a correrla para tener esto.</li>
+      </ul>
+    </div>
   );
 }
