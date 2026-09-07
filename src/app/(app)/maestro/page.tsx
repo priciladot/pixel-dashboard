@@ -18,27 +18,11 @@ import { Card, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { TablaComparativa } from "@/components/TablaComparativa";
 import { MezclaCartera } from "@/components/MezclaCartera";
-import { dias, dinero, dineroCorto, num, pct } from "@/lib/format";
+import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
 import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
 import type { Ventana } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-const MESES = [
-  "enero", "febrero", "marzo", "abril", "mayo", "junio",
-  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
-];
-
-/** "2026-09-01", "2026-09-30" -> "1 al 30 de septiembre de 2026". */
-function formatearRangoFechas(inicioIso: string, finIso: string): string {
-  const inicio = new Date(`${inicioIso}T00:00:00`);
-  const fin = new Date(`${finIso}T00:00:00`);
-  const mismoMes = inicio.getMonth() === fin.getMonth() && inicio.getFullYear() === fin.getFullYear();
-  if (mismoMes) {
-    return `${inicio.getDate()} al ${fin.getDate()} de ${MESES[fin.getMonth()]} de ${fin.getFullYear()}`;
-  }
-  return `${inicio.getDate()} de ${MESES[inicio.getMonth()]} al ${fin.getDate()} de ${MESES[fin.getMonth()]} de ${fin.getFullYear()}`;
-}
 
 export default async function Maestro({
   searchParams,

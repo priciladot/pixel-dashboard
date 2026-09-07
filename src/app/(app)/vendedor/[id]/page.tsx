@@ -10,7 +10,7 @@ import { Brecha } from "@/components/Brecha";
 import { Acciones } from "@/components/Acciones";
 import { Historico } from "@/components/Historico";
 import { MezclaCartera } from "@/components/MezclaCartera";
-import { dias, dinero, dineroCorto, num, pct } from "@/lib/format";
+import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
 import type { Ventana } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,12 +60,11 @@ export default async function VistaVendedor({
             {kpi && <CalidadBadge calidad={kpi.calidad} />}
           </div>
           <p className="mt-0.5 text-[13px] text-ink-soft">
-            {persona.puesto ?? "Equipo comercial"} · {periodo.etiqueta} ·{" "}
-            <span className="tabular">
-              {ventana === "kpi_4_semanas"
-                ? `S1–S4: ${periodo.kpi_inicio} al ${periodo.kpi_fin}`
-                : `Calendario: ${periodo.cal_inicio} al ${periodo.cal_fin}`}
-            </span>
+            {persona.puesto ?? "Equipo comercial"} · {periodo.etiqueta} · Evaluando ventas cerradas del{" "}
+            {formatearRangoFechas(
+              ventana === "kpi_4_semanas" ? periodo.kpi_inicio : periodo.cal_inicio,
+              ventana === "kpi_4_semanas" ? periodo.kpi_fin : periodo.cal_fin,
+            )}
           </p>
           {!propio && esDireccion(sesion) && (
             <p className="mt-1 text-[11px] text-ink-muted">Vista de supervisión — este perfil no es el tuyo.</p>

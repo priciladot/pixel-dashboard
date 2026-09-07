@@ -18,6 +18,22 @@ export const num     = (n?: number | null) => (n == null ? "—" : entero.format
 export const pct     = (n?: number | null, d = 1) => (n == null ? "—" : `${n.toFixed(d)}%`);
 export const dias    = (n?: number | null) => (n == null ? "—" : `${n.toFixed(1)} días`);
 
+const MESES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+
+/** "2026-09-01", "2026-09-30" -> "1 al 30 de septiembre de 2026". Funciona para cualquier mes/año, no solo septiembre. */
+export function formatearRangoFechas(inicioIso: string, finIso: string): string {
+  const inicio = new Date(`${inicioIso}T00:00:00`);
+  const fin = new Date(`${finIso}T00:00:00`);
+  const mismoMes = inicio.getMonth() === fin.getMonth() && inicio.getFullYear() === fin.getFullYear();
+  if (mismoMes) {
+    return `${inicio.getDate()} al ${fin.getDate()} de ${MESES[fin.getMonth()]} de ${fin.getFullYear()}`;
+  }
+  return `${inicio.getDate()} de ${MESES[inicio.getMonth()]} al ${fin.getDate()} de ${MESES[fin.getMonth()]} de ${fin.getFullYear()}`;
+}
+
 /** Compacto para tarjetas: $5.8M / $744K */
 export function dineroCorto(n?: number | null): string {
   if (n == null) return "—";
