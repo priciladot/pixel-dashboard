@@ -1,12 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/cron/sincronizar",
-      "schedule": "0 15 * * *"
+      "path": "/api/cron/sincronizar-todo",
+      "schedule": "30 14 * * *"
     },
     {
-      "path": "/api/cron/sincronizar-monday",
-      "schedule": "30 15 * * *"
+      "path": "/api/cron/sincronizar-todo",
+      "schedule": "0 20 * * *"
     }
   ]
 }

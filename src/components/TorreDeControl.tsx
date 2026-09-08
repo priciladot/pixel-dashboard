@@ -77,7 +77,7 @@ export async function TorreDeControl({
     dealsEstancados(vendedorId, 7),
     motivosPerdida(periodoId, vendedorId),
     resumenOperativoMonday(periodoId, vendedorId),
-    accionesPrioritarias(vendedorId, 10),
+    accionesPrioritarias(vendedorId, 4),
     ventasConProducto(periodoId, vendedorId),
     alertasHigiene(periodoId, vendedorId, 5),
     productosSemanaPasada(vendedorId),

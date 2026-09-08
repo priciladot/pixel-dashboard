@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buscarDeals, buscarDealsAbiertos, buscarDealsCreados, enriquecerConAsociaciones, enriquecerConOwners, listarOwners } from "@/lib/ingesta/hubspot";
-import { ingestarDeals } from "@/lib/ingesta/cargar";
+import { sincronizarTodo } from "@/lib/ingesta/sincronizar-todo";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -11,9 +10,10 @@ export const maxDuration = 300;
  * POST /api/ingesta/hubspot
  * body: { periodoId: string, ventana?: "kpi_4_semanas" | "calendario", simulacion?: boolean }
  *
- * Descarga los negocios del rango que corresponde al periodo —usando la
- * ventana de KPI de 4 semanas por omisión, no el mes calendario— y los pasa
- * por la capa de sanitización.
+ * Dispara el mismo corte unificado que el cron automático
+ * (sincronizarTodo: Deals + KPIs + contacto_ids/correos, Analítica y
+ * Cierres de Monday) para cuando se quiera refrescar a demanda desde
+ * /maestro sin esperar al siguiente corte programado.
  */
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -36,40 +36,11 @@ export async function POST(req: Request) {
   const hasta = ventana === "calendario" ? periodo.cal_fin : periodo.kpi_fin;
 
   try {
-    const owners = await listarOwners();
-    const [cerrados, creados, abiertos] = await Promise.all([
-      buscarDeals(desde, hasta),
-      buscarDealsCreados(desde, hasta),
-      // Sin acotar por fecha -- refresca contacto_ids/empresa_id de TODO
-      // negocio abierto, incluyendo los que se arrastran de meses previos y
-      // que cerrados/creados nunca vuelven a tocar por estar fuera de rango.
-      buscarDealsAbiertos(),
-    ]);
-
-    // sanearLote deduplica por hubspot_id, así que el traslape no cuenta doble.
-    // Las associations se resuelven aparte, contra el API de Asociaciones v4
-    // (ver comentario de enriquecerConAsociaciones para el porqué).
-    const sinContactos = enriquecerConOwners([...cerrados, ...creados, ...abiertos], owners);
-    const crudos = await enriquecerConAsociaciones(sinContactos);
-
-    // Diagnóstico directo en la respuesta -- para confirmar de un vistazo si
-    // esta corrida sí trajo contactos, sin tener que ir a Supabase a revisar.
-    const conContacto = crudos.filter((d) => (d.contacto_ids?.length ?? 0) > 0).length;
-
-    const resultado = await ingestarDeals(db, crudos, {
-      tipo: "hubspot_api",
-      periodoId,
-      ejecutadoPor: user.id,
-      ventana,
-      simulacion,
+    const resultado = await sincronizarTodo(db, {
+      periodoId, desde, hasta, ventana, origen: "manual", simulacion, ejecutadoPor: user.id,
     });
 
-    return NextResponse.json({
-      ok: true,
-      rango: { desde, hasta },
-      diagnostico: { negociosTotal: crudos.length, negociosConContactoAsociado: conContacto },
-      ...resultado,
-    });
+    return NextResponse.json({ ok: true, rango: { desde, hasta }, ...resultado });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Error desconocido en la ingesta" },

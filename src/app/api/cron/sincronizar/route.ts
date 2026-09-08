@@ -10,8 +10,11 @@ export const maxDuration = 60;   // Límite del plan Hobby de Vercel. En Pro sub
 /**
  * GET /api/cron/sincronizar
  *
- * Sincronización automática con HubSpot. La dispara el cron de Vercel, que
- * manda `Authorization: Bearer $CRON_SECRET` en cada corrida.
+ * Solo Deals + KPIs + contacto_ids/correos de HubSpot -- YA NO está en el
+ * cron automático de Vercel (ver vercel.json), reemplazado por el corte
+ * unificado de /api/cron/sincronizar-todo (Deals + Analítica + Monday en
+ * una sola corrida, 2 veces al día). Esta ruta se queda solo para
+ * pruebas/debug puntuales de esta sección en aislado.
  *
  * Parámetros opcionales (para dispararlo a mano):
  *   ?periodo=2026-08   fuerza un periodo en lugar del vigente

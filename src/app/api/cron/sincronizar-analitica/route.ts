@@ -10,10 +10,11 @@ export const maxDuration = 60;
 /**
  * GET /api/cron/sincronizar-analitica
  *
- * Historial de etapas, actividades/tareas y leads de HubSpot. A propósito
- * NO está en vercel.json: el plan Hobby solo permite 2 cron jobs y ya están
- * ocupados por /sincronizar y /sincronizar-monday. Esta ruta se dispara a
- * mano (o desde /ingesta más adelante), no automáticamente todavía.
+ * Historial de etapas, actividades/tareas y leads de HubSpot. YA NO está en
+ * el cron automático de Vercel (ver vercel.json), reemplazado por el corte
+ * unificado de /api/cron/sincronizar-todo (Deals + Analítica + Monday en
+ * una sola corrida, 2 veces al día). Esta ruta se queda solo para
+ * pruebas/debug puntuales de esta sección en aislado.
  *
  * Autenticación: `Authorization: Bearer $CRON_SECRET` o `?secret=...`.
  *

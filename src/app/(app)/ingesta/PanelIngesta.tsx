@@ -94,8 +94,10 @@ export function PanelIngesta({ periodos }: { periodos: Periodo[] }) {
           <div>
             <h3 className="text-[13px] font-semibold text-ink">Sincronizar con HubSpot</h3>
             <p className="mt-1 text-[12px] text-ink-soft">
-              Trae los negocios creados y cerrados en el rango, los asigna por propietario y
-              recalcula embudo, ticket y ciclo. Las cifras de venta las sigue mandando el semáforo.
+              Corte unificado: negocios (creados, cerrados y abiertos, con su contacto y correo),
+              analítica de HubSpot (etapas, actividades, tareas) y cierres de Monday, los 3 de un
+              jalón -- el mismo flujo que corre solo a las 8:30 AM y 2:00 PM. Las cifras de venta
+              las sigue mandando el semáforo.
             </p>
             <label className="mt-2.5 flex items-center gap-2 text-[12px] text-ink-soft">
               <input type="checkbox" checked={simulacion} onChange={(e) => setSimulacion(e.target.checked)} />

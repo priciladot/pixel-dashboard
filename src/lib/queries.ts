@@ -406,7 +406,7 @@ export interface AccionPrioritaria {
  *     30+ días (umbral más estricto que el de "Focos rojos", pensado para
  *     esta lista corta de prioridades).
  */
-export async function accionesPrioritarias(vendedorId?: string, limite = 10): Promise<AccionPrioritaria[]> {
+export async function accionesPrioritarias(vendedorId?: string, limite = 4): Promise<AccionPrioritaria[]> {
   const supabase = await createClient();
 
   let qTareas = supabase
