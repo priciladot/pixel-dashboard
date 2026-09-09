@@ -7,9 +7,9 @@ import type { Periodo } from "@/lib/types";
 
 type Resultado = Record<string, unknown> & { error?: string };
 
-export function PanelIngesta({ periodos }: { periodos: Periodo[] }) {
+export function PanelIngesta({ periodos, periodoInicialId }: { periodos: Periodo[]; periodoInicialId?: string }) {
   const router = useRouter();
-  const [periodoId, setPeriodoId] = useState(periodos[0]?.id ?? "");
+  const [periodoId, setPeriodoId] = useState(periodoInicialId ?? periodos[0]?.id ?? "");
   const [ventana, setVentana] = useState<"kpi_4_semanas" | "calendario">("kpi_4_semanas");
   const [simulacion, setSimulacion] = useState(true);
   const [cargando, setCargando] = useState<"hubspot" | "archivo" | null>(null);

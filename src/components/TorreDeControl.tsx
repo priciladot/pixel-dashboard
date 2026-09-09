@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import {
-  kpisDelPeriodo, periodos, resumenArea, vendedores, dealsPorRevisar,
+  kpisDelPeriodo, periodos, periodoActivoDe, resumenArea, vendedores, dealsPorRevisar,
   tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday,
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
@@ -57,7 +57,9 @@ export async function TorreDeControl({
     return <Vacio titulo="No hay periodos configurados" detalle="Corre la migración 003_seed.sql para crear el calendario de KPI." />;
   }
 
-  const periodoId = periodoIdParam && lista.some((p) => p.id === periodoIdParam) ? periodoIdParam : lista[0].id;
+  const periodoId = periodoIdParam && lista.some((p) => p.id === periodoIdParam)
+    ? periodoIdParam
+    : (periodoActivoDe(lista) ?? lista[0]).id;
   const ventana: Ventana = ventanaParam === "calendario" ? "calendario" : "kpi_4_semanas";
   const vistaTiempo: VistaTiempo = vistaParam === "trimestral" ? "trimestral" : "mensual";
   const periodo = lista.find((p) => p.id === periodoId)!;

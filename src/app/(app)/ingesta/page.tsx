@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { requiereRol } from "@/lib/auth";
-import { periodos, ultimasIngestas } from "@/lib/queries";
+import { periodos, periodoActivoDe, ultimasIngestas } from "@/lib/queries";
 import { Card, Seccion } from "@/components/ui";
 import { PanelIngesta } from "./PanelIngesta";
 
@@ -16,6 +16,10 @@ const ESTATUS: Record<string, { texto: string; color: string; icono: string }> =
 export default async function Ingesta() {
   await requiereRol("admin");
   const [lista, historial] = await Promise.all([periodos(), ultimasIngestas()]);
+  // periodoActivoDe() es el mes que contiene HOY -- periodos() ordena
+  // descendente para el selector, así que lista[0] es el más FUTURO
+  // configurado, no el actual (ver el mismo fix en /maestro y /vendedor/[id]).
+  const periodoInicialId = (periodoActivoDe(lista) ?? lista[0])?.id;
 
   return (
     <>
@@ -28,7 +32,7 @@ export default async function Ingesta() {
       </div>
 
       <Suspense fallback={null}>
-        <PanelIngesta periodos={lista} />
+        <PanelIngesta periodos={lista} periodoInicialId={periodoInicialId} />
       </Suspense>
 
       <Seccion titulo="Historial de ingestas" descripcion="Las últimas 15 corridas.">

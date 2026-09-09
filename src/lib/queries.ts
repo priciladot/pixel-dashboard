@@ -22,9 +22,24 @@ export async function periodos(): Promise<Periodo[]> {
   return (data as Periodo[]) ?? [];
 }
 
+/**
+ * El periodo cuyo rango calendario contiene HOY -- no "el primero de la
+ * lista". periodos() ordena por anio/mes DESCENDENTE (para que el
+ * selector muestre lo más reciente arriba), así que lista[0] es el mes
+ * MÁS FUTURO configurado, no el actual: si ya existen periodos
+ * pre-creados hasta diciembre, cualquier pantalla que caía a lista[0] sin
+ * ?periodo en la URL terminaba viendo/sincronizando diciembre por
+ * default en pleno septiembre.
+ */
+export function periodoActivoDe(lista: Periodo[]): Periodo | undefined {
+  const hoy = new Date().toISOString().slice(0, 10);
+  return lista.find((p) => hoy >= p.cal_inicio && hoy <= p.cal_fin)
+    ?? lista.find((p) => hoy >= p.kpi_inicio && hoy <= p.kpi_fin);
+}
+
 export async function periodoVigente(): Promise<Periodo | null> {
   const lista = await periodos();
-  return lista.find((p) => p.cerrado) ?? lista[0] ?? null;
+  return periodoActivoDe(lista) ?? lista[0] ?? null;
 }
 
 export async function vendedores(): Promise<Perfil[]> {

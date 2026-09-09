@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { esDireccion, requiereSesion } from "@/lib/auth";
-import { contextoMercado, evaluacionDe, historicoDe, perfilPorId, periodos } from "@/lib/queries";
+import { contextoMercado, evaluacionDe, historicoDe, perfilPorId, periodos, periodoActivoDe } from "@/lib/queries";
 import { Card, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { Acciones } from "@/components/Acciones";
@@ -34,7 +34,13 @@ export default async function VistaVendedor({
   const lista = await periodos();
   if (lista.length === 0) return <Vacio titulo="No hay periodos configurados" />;
 
-  const periodoId = sp.periodo && lista.some((p) => p.id === sp.periodo) ? sp.periodo : lista[0].id;
+  // periodoActivoDe() es el mes que contiene HOY, no lista[0] (el más
+  // FUTURO configurado -- periodos() ordena descendente para el selector,
+  // así que sin ?periodo en la URL esto caía en el mes más lejano en vez
+  // del actual).
+  const periodoId = sp.periodo && lista.some((p) => p.id === sp.periodo)
+    ? sp.periodo
+    : (periodoActivoDe(lista) ?? lista[0]).id;
   const ventana: Ventana = sp.ventana === "calendario" ? "calendario" : "kpi_4_semanas";
   const periodo = lista.find((p) => p.id === periodoId)!;
 

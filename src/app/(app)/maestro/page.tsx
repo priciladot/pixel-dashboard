@@ -1,5 +1,5 @@
 import { esAdmin, requiereRol } from "@/lib/auth";
-import { periodos } from "@/lib/queries";
+import { periodos, periodoActivoDe } from "@/lib/queries";
 import { TorreDeControl } from "@/components/TorreDeControl";
 import { BotonSincronizarHubspot } from "@/components/BotonSincronizarHubspot";
 
@@ -13,9 +13,14 @@ export default async function Maestro({
 
   // Mismo criterio de resolución que TorreDeControl -- el botón debe
   // sincronizar el periodo que realmente se está viendo, no un default
-  // distinto al de la pantalla.
+  // distinto al de la pantalla. periodoActivoDe() es el mes que contiene
+  // HOY, no lista[0] (que es el más FUTURO configurado -- periodos()
+  // ordena descendente para el selector -- así que sin ?periodo en la URL
+  // esto terminaba cayendo en diciembre en pleno septiembre).
   const lista = await periodos();
-  const periodoId = sp.periodo && lista.some((p) => p.id === sp.periodo) ? sp.periodo : lista[0]?.id;
+  const periodoId = sp.periodo && lista.some((p) => p.id === sp.periodo)
+    ? sp.periodo
+    : (periodoActivoDe(lista) ?? lista[0])?.id;
   const periodo = lista.find((p) => p.id === periodoId);
 
   return (
