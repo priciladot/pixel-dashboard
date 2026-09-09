@@ -221,11 +221,6 @@ export interface EngagementCrudo {
 interface EngagementApi {
   id: string;
   properties: Record<string, string | null>;
-  associations?: {
-    deals?: { results: Array<{ id: string }> };
-    contacts?: { results: Array<{ id: string }> };
-    companies?: { results: Array<{ id: string }> };
-  };
 }
 
 function aEngagementCrudo(tipo: TipoEngagement, e: EngagementApi): EngagementCrudo {
@@ -235,9 +230,10 @@ function aEngagementCrudo(tipo: TipoEngagement, e: EngagementApi): EngagementCru
   return {
     hubspot_id: e.id,
     tipo,
-    deal_id_ref: e.associations?.deals?.results?.[0]?.id ?? null,
-    contact_id_ref: e.associations?.contacts?.results?.[0]?.id ?? null,
-    company_id_ref: e.associations?.companies?.results?.[0]?.id ?? null,
+    // deal_id_ref/contact_id_ref/company_id_ref se rellenan aparte -- ver enriquecerEngagementsConAsociaciones().
+    deal_id_ref: null,
+    contact_id_ref: null,
+    company_id_ref: null,
     owner_hubspot_id: p.hubspot_owner_id ?? null,
     asunto,
     estado: p.hs_task_status ?? null,
@@ -248,7 +244,9 @@ function aEngagementCrudo(tipo: TipoEngagement, e: EngagementApi): EngagementCru
 }
 
 /**
- * Trae un tipo de actividad/tarea creada en el rango, con su deal asociado.
+ * Trae un tipo de actividad/tarea creada en el rango. Solo ids y
+ * propiedades -- las asociaciones a deal/contacto/empresa se resuelven
+ * aparte, ver enriquecerEngagementsConAsociaciones().
  * Si el token no tiene el scope de este tipo, HubSpot regresa 403 — se
  * relanza como SinPermisoError para que el orquestador lo aísle.
  */
@@ -269,7 +267,6 @@ export async function buscarEngagements(
         ],
       }],
       properties: propiedades,
-      associations: ["deals", "contacts", "companies"],
       limit: 100,
       ...(after ? { after } : {}),
     };
@@ -286,12 +283,83 @@ export async function buscarEngagements(
   return salida;
 }
 
+interface AsociacionV4Api {
+  from: { id: string };
+  to: Array<{ toObjectId: string }>;
+}
+
+/**
+ * Trae, en bloque, el primer id asociado de un tipo de objeto (deals,
+ * contacts o companies) para una lista de actividades del mismo tipo --
+ * vía el API DEDICADO de Asociaciones v4
+ * (/crm/v4/associations/{from}/{to}/batch/read). Igual que con los deals
+ * (ver enriquecerConAsociaciones() en hubspot.ts): "associations" como
+ * parámetro lateral de /search se ignora en silencio, este es el mecanismo
+ * que sí funciona.
+ */
+async function asociacionesV4(fromTipo: string, hacia: "deals" | "contacts" | "companies", ids: string[]): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>();
+  if (ids.length === 0) return mapa;
+
+  const lotes: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) lotes.push(ids.slice(i, i + 100));
+
+  const resultados = await Promise.all(lotes.map((lote) =>
+    api<{ results: AsociacionV4Api[] }>(`/crm/v4/associations/${fromTipo}/${hacia}/batch/read`, {
+      method: "POST",
+      body: JSON.stringify({ inputs: lote.map((id) => ({ id })) }),
+    }),
+  ));
+
+  for (const r of resultados) {
+    for (const item of r.results) {
+      if (item.to?.[0]) mapa.set(item.from.id, item.to[0].toObjectId);
+    }
+  }
+  return mapa;
+}
+
+/**
+ * Segundo paso OBLIGATORIO para deal_id_ref/contact_id_ref/company_id_ref
+ * de actividades -- sin esto, una nota o tarea registrada en el Contacto
+ * (no directamente en la tarjeta del Deal) nunca se ligaba a ningún
+ * negocio, y v_deal_actividad la trataba como si nunca hubiera existido
+ * (de ahí negocios marcados con "12 días sin actividad" que en realidad
+ * tenían una nota de ayer, capturada en el Contacto).
+ */
+export async function enriquecerEngagementsConAsociaciones(
+  porTipo: Partial<Record<TipoEngagement, EngagementCrudo[]>>,
+): Promise<Partial<Record<TipoEngagement, EngagementCrudo[]>>> {
+  const salida: Partial<Record<TipoEngagement, EngagementCrudo[]>> = {};
+
+  await Promise.all((Object.entries(porTipo) as Array<[TipoEngagement, EngagementCrudo[] | undefined]>).map(async ([tipo, lista]) => {
+    if (!lista || lista.length === 0) { salida[tipo] = lista; return; }
+    const fromTipo = ENDPOINT_POR_TIPO[tipo];
+    const ids = lista.map((e) => e.hubspot_id);
+
+    const [mapaDeals, mapaContactos, mapaEmpresas] = await Promise.all([
+      asociacionesV4(fromTipo, "deals", ids),
+      asociacionesV4(fromTipo, "contacts", ids),
+      asociacionesV4(fromTipo, "companies", ids),
+    ]);
+
+    salida[tipo] = lista.map((e) => ({
+      ...e,
+      deal_id_ref: mapaDeals.get(e.hubspot_id) ?? null,
+      contact_id_ref: mapaContactos.get(e.hubspot_id) ?? null,
+      company_id_ref: mapaEmpresas.get(e.hubspot_id) ?? null,
+    }));
+  }));
+
+  return salida;
+}
+
 export interface ResultadoEngagements {
   porTipo: Partial<Record<TipoEngagement, EngagementCrudo[]>>;
   sinPermiso: TipoEngagement[];
 }
 
-/** Trae los 5 tipos en paralelo; aísla los que fallen por falta de scope. */
+/** Trae los 5 tipos en paralelo; aísla los que fallen por falta de scope; luego resuelve sus asociaciones reales. */
 export async function buscarTodosLosEngagements(desde: string, hasta: string): Promise<ResultadoEngagements> {
   const tipos: TipoEngagement[] = ["call", "email", "meeting", "note", "task"];
   const resultado: ResultadoEngagements = { porTipo: {}, sinPermiso: [] };
@@ -308,6 +376,7 @@ export async function buscarTodosLosEngagements(desde: string, hasta: string): P
     }
   }));
 
+  resultado.porTipo = await enriquecerEngagementsConAsociaciones(resultado.porTipo);
   return resultado;
 }
 
@@ -376,14 +445,15 @@ export interface LeadCrudo {
 interface LeadApi {
   id: string;
   properties: Record<string, string | null>;
-  associations?: { deals?: { results: Array<{ id: string }> } };
 }
 
 /**
  * Trae leads creados en el rango. Si el portal no tiene el objeto Leads
  * habilitado, HubSpot regresa 403 (sin el scope) o 404 (objeto no existe) —
  * ambos casos se tratan igual: se reporta "sin permiso / no disponible" en
- * vez de fallar la corrida completa.
+ * vez de fallar la corrida completa. deal_id_ref se resuelve aparte contra
+ * el API de Asociaciones v4 -- "associations" en /search se ignora en
+ * silencio, igual que con deals y engagements.
  */
 export async function buscarLeads(desde: string, hasta: string): Promise<{ leads: LeadCrudo[]; disponible: boolean }> {
   const salida: LeadCrudo[] = [];
@@ -399,7 +469,6 @@ export async function buscarLeads(desde: string, hasta: string): Promise<{ leads
           ],
         }],
         properties: ["hs_lead_name", "hs_pipeline_stage", "hs_createdate", "hubspot_owner_id"],
-        associations: ["deals"],
         limit: 100,
         ...(after ? { after } : {}),
       };
@@ -411,7 +480,7 @@ export async function buscarLeads(desde: string, hasta: string): Promise<{ leads
 
       salida.push(...r.results.map((l) => ({
         hubspot_id: l.id,
-        deal_id_ref: l.associations?.deals?.results?.[0]?.id ?? null,
+        deal_id_ref: null,
         owner_hubspot_id: l.properties.hubspot_owner_id ?? null,
         etapa: l.properties.hs_pipeline_stage ?? null,
         fecha_creacion: l.properties.hs_createdate ?? null,
@@ -424,6 +493,11 @@ export async function buscarLeads(desde: string, hasta: string): Promise<{ leads
       return { leads: [], disponible: false };
     }
     throw e;
+  }
+
+  if (salida.length > 0) {
+    const mapaDeals = await asociacionesV4("leads", "deals", salida.map((l) => l.hubspot_id));
+    return { leads: salida.map((l) => ({ ...l, deal_id_ref: mapaDeals.get(l.hubspot_id) ?? null })), disponible: true };
   }
 
   return { leads: salida, disponible: true };
