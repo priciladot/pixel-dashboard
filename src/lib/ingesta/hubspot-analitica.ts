@@ -12,6 +12,8 @@
  * `sinPermiso` para que la corrida lo reporte en vez de fallar entera.
  */
 
+import { conLimiteDeConcurrencia } from "./concurrencia";
+
 const BASE = "https://api.hubapi.com";
 
 function token(): string {
@@ -26,7 +28,7 @@ class SinPermisoError extends Error {
   }
 }
 
-async function api<T>(ruta: string, init?: RequestInit): Promise<T> {
+async function api<T>(ruta: string, init?: RequestInit, intento = 0): Promise<T> {
   const res = await fetch(`${BASE}${ruta}`, {
     ...init,
     headers: {
@@ -38,8 +40,15 @@ async function api<T>(ruta: string, init?: RequestInit): Promise<T> {
   });
 
   if (res.status === 429) {
-    await new Promise((r) => setTimeout(r, 10_000));
-    return api<T>(ruta, init);
+    // Tope de reintentos + jitter -- sin esto, un lote grande dispara muchas
+    // peticiones a la vez, todas chocan con el límite de HubSpot, todas
+    // esperan el mismo tiempo fijo y vuelven a chocar juntas (manada
+    // estampida). Ver conLimiteDeConcurrencia() para la otra mitad del fix:
+    // no dejar que se disparen tantas de golpe en primer lugar.
+    if (intento >= 4) throw new Error(`HubSpot 429 persistente en ${ruta} tras ${intento} reintentos.`);
+    const espera = 5000 * (intento + 1) + Math.random() * 3000;
+    await new Promise((r) => setTimeout(r, espera));
+    return api<T>(ruta, init, intento + 1);
   }
   if (res.status === 403) {
     throw new SinPermisoError(ruta, `HubSpot 403 en ${ruta}: falta el scope de lectura para este objeto.`);
@@ -304,12 +313,12 @@ async function asociacionesV4(fromTipo: string, hacia: "deals" | "contacts" | "c
   const lotes: string[][] = [];
   for (let i = 0; i < ids.length; i += 100) lotes.push(ids.slice(i, i + 100));
 
-  const resultados = await Promise.all(lotes.map((lote) =>
+  const resultados = await conLimiteDeConcurrencia(lotes, 5, (lote) =>
     api<{ results: AsociacionV4Api[] }>(`/crm/v4/associations/${fromTipo}/${hacia}/batch/read`, {
       method: "POST",
       body: JSON.stringify({ inputs: lote.map((id) => ({ id })) }),
     }),
-  ));
+  );
 
   for (const r of resultados) {
     for (const item of r.results) {
@@ -319,50 +328,115 @@ async function asociacionesV4(fromTipo: string, hacia: "deals" | "contacts" | "c
   return mapa;
 }
 
+type HaciaEngagement = "deals" | "contacts" | "companies";
+const TODAS_LAS_HACIA: HaciaEngagement[] = ["deals", "contacts", "companies"];
+
 /**
  * Segundo paso OBLIGATORIO para deal_id_ref/contact_id_ref/company_id_ref
  * de actividades -- sin esto, una nota o tarea registrada en el Contacto
  * (no directamente en la tarjeta del Deal) nunca se ligaba a ningún
  * negocio, y v_deal_actividad la trataba como si nunca hubiera existido
- * (de ahí negocios marcados con "12 días sin actividad" que en realidad
- * tenían una nota de ayer, capturada en el Contacto).
+ * (de ahí negocios marcados con "días sin actividad" que en realidad
+ * tenían una nota reciente, capturada en el Contacto).
+ *
+ * Con miles de actividades (notas + tareas fácilmente pasan de 5,000),
+ * cada una necesitando 3 tipos de asociación, salen cientos de lotes de
+ * 100 -- si cada tipo de actividad y cada tipo de asociación dispara su
+ * propio Promise.all por separado, los límites de concurrencia se apilan
+ * (5 tipos × 3 asociaciones × N lotes en paralelo) y se sigue chocando con
+ * el límite real de HubSpot, que es GLOBAL para todo el Private App, no
+ * por endpoint. Por eso aquí se arma una sola cola con TODOS los lotes de
+ * TODOS los tipos y las 3 asociaciones, y se procesa con un único límite
+ * de concurrencia compartido.
  */
+export interface DiagnosticoAsociaciones {
+  totalActividadesEntrada: number;
+  totalRespuestasConAlMenosUnaAsociacion: number;
+  totalRespuestasVacias: number;
+  /** Una respuesta cruda de ejemplo (la primera con datos, si hay) -- para inspeccionar el shape real de HubSpot sin adivinar. */
+  ejemploCrudo: unknown;
+}
+
 export async function enriquecerEngagementsConAsociaciones(
   porTipo: Partial<Record<TipoEngagement, EngagementCrudo[]>>,
-): Promise<Partial<Record<TipoEngagement, EngagementCrudo[]>>> {
-  const salida: Partial<Record<TipoEngagement, EngagementCrudo[]>> = {};
+): Promise<{ porTipo: Partial<Record<TipoEngagement, EngagementCrudo[]>>; diagnostico: DiagnosticoAsociaciones }> {
+  interface Trabajo { tipo: TipoEngagement; hacia: HaciaEngagement; lote: string[] }
+  const trabajos: Trabajo[] = [];
 
-  await Promise.all((Object.entries(porTipo) as Array<[TipoEngagement, EngagementCrudo[] | undefined]>).map(async ([tipo, lista]) => {
-    if (!lista || lista.length === 0) { salida[tipo] = lista; return; }
-    const fromTipo = ENDPOINT_POR_TIPO[tipo];
+  for (const [tipo, lista] of Object.entries(porTipo) as Array<[TipoEngagement, EngagementCrudo[] | undefined]>) {
+    if (!lista || lista.length === 0) continue;
     const ids = lista.map((e) => e.hubspot_id);
+    for (const hacia of TODAS_LAS_HACIA) {
+      for (let i = 0; i < ids.length; i += 100) trabajos.push({ tipo, hacia, lote: ids.slice(i, i + 100) });
+    }
+  }
 
-    const [mapaDeals, mapaContactos, mapaEmpresas] = await Promise.all([
-      asociacionesV4(fromTipo, "deals", ids),
-      asociacionesV4(fromTipo, "contacts", ids),
-      asociacionesV4(fromTipo, "companies", ids),
-    ]);
+  type MapasPorHacia = Record<HaciaEngagement, Map<string, string>>;
+  const mapasPorTipo = new Map<TipoEngagement, MapasPorHacia>();
+  const mapasDe = (tipo: TipoEngagement): MapasPorHacia => {
+    let m = mapasPorTipo.get(tipo);
+    if (!m) { m = { deals: new Map(), contacts: new Map(), companies: new Map() }; mapasPorTipo.set(tipo, m); }
+    return m;
+  };
 
+  const resultados = await conLimiteDeConcurrencia(trabajos, 5, async (trabajo) => {
+    const fromTipo = ENDPOINT_POR_TIPO[trabajo.tipo];
+    const r = await api<{ results: AsociacionV4Api[] }>(`/crm/v4/associations/${fromTipo}/${trabajo.hacia}/batch/read`, {
+      method: "POST",
+      body: JSON.stringify({ inputs: trabajo.lote.map((id) => ({ id })) }),
+    });
+    return { tipo: trabajo.tipo, hacia: trabajo.hacia, items: r.results };
+  });
+
+  let conAsociacion = 0;
+  let sinAsociacion = 0;
+  let ejemploCrudo: unknown = null;
+  for (const r of resultados) {
+    const mapa = mapasDe(r.tipo)[r.hacia];
+    for (const item of r.items) {
+      if (item.to?.[0]) {
+        mapa.set(item.from.id, item.to[0].toObjectId);
+        conAsociacion += 1;
+        if (!ejemploCrudo) ejemploCrudo = item;
+      } else {
+        sinAsociacion += 1;
+      }
+    }
+  }
+
+  const salida: Partial<Record<TipoEngagement, EngagementCrudo[]>> = {};
+  let totalActividadesEntrada = 0;
+  for (const [tipo, lista] of Object.entries(porTipo) as Array<[TipoEngagement, EngagementCrudo[] | undefined]>) {
+    if (!lista || lista.length === 0) { salida[tipo] = lista; continue; }
+    totalActividadesEntrada += lista.length;
+    const mapas = mapasPorTipo.get(tipo);
     salida[tipo] = lista.map((e) => ({
       ...e,
-      deal_id_ref: mapaDeals.get(e.hubspot_id) ?? null,
-      contact_id_ref: mapaContactos.get(e.hubspot_id) ?? null,
-      company_id_ref: mapaEmpresas.get(e.hubspot_id) ?? null,
+      deal_id_ref: mapas?.deals.get(e.hubspot_id) ?? null,
+      contact_id_ref: mapas?.contacts.get(e.hubspot_id) ?? null,
+      company_id_ref: mapas?.companies.get(e.hubspot_id) ?? null,
     }));
-  }));
+  }
 
-  return salida;
+  const diagnostico: DiagnosticoAsociaciones = {
+    totalActividadesEntrada,
+    totalRespuestasConAlMenosUnaAsociacion: conAsociacion,
+    totalRespuestasVacias: sinAsociacion,
+    ejemploCrudo,
+  };
+  return { porTipo: salida, diagnostico };
 }
 
 export interface ResultadoEngagements {
   porTipo: Partial<Record<TipoEngagement, EngagementCrudo[]>>;
   sinPermiso: TipoEngagement[];
+  diagnosticoAsociaciones: DiagnosticoAsociaciones | null;
 }
 
 /** Trae los 5 tipos en paralelo; aísla los que fallen por falta de scope; luego resuelve sus asociaciones reales. */
 export async function buscarTodosLosEngagements(desde: string, hasta: string): Promise<ResultadoEngagements> {
   const tipos: TipoEngagement[] = ["call", "email", "meeting", "note", "task"];
-  const resultado: ResultadoEngagements = { porTipo: {}, sinPermiso: [] };
+  const resultado: ResultadoEngagements = { porTipo: {}, sinPermiso: [], diagnosticoAsociaciones: null };
 
   await Promise.all(tipos.map(async (tipo) => {
     try {
@@ -376,7 +450,9 @@ export async function buscarTodosLosEngagements(desde: string, hasta: string): P
     }
   }));
 
-  resultado.porTipo = await enriquecerEngagementsConAsociaciones(resultado.porTipo);
+  const enriquecido = await enriquecerEngagementsConAsociaciones(resultado.porTipo);
+  resultado.porTipo = enriquecido.porTipo;
+  resultado.diagnosticoAsociaciones = enriquecido.diagnostico;
   return resultado;
 }
 

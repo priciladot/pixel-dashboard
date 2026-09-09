@@ -9,6 +9,7 @@
  */
 
 import type { DealCrudo } from "./sanitizar";
+import { conLimiteDeConcurrencia } from "./concurrencia";
 
 const BASE = "https://api.hubapi.com";
 
@@ -48,7 +49,7 @@ const PROPIEDADES_BASE = [
   "createdate", "closedate", "hs_is_closed_won", "hs_is_closed",
 ];
 
-async function api<T>(ruta: string, init?: RequestInit): Promise<T> {
+async function api<T>(ruta: string, init?: RequestInit, intento = 0): Promise<T> {
   const res = await fetch(`${BASE}${ruta}`, {
     ...init,
     headers: {
@@ -60,9 +61,14 @@ async function api<T>(ruta: string, init?: RequestInit): Promise<T> {
   });
 
   if (res.status === 429) {
-    // HubSpot limita a 100 req / 10 s en Private Apps.
-    await new Promise((r) => setTimeout(r, 10_000));
-    return api<T>(ruta, init);
+    // HubSpot limita a 100 req / 10 s en Private Apps. Tope de reintentos +
+    // jitter -- sin esto, un lote grande dispara muchas peticiones a la vez,
+    // todas chocan con el límite, todas esperan el mismo tiempo fijo y
+    // vuelven a chocar juntas (manada estampida).
+    if (intento >= 4) throw new Error(`HubSpot 429 persistente en ${ruta} tras ${intento} reintentos.`);
+    const espera = 5000 * (intento + 1) + Math.random() * 3000;
+    await new Promise((r) => setTimeout(r, espera));
+    return api<T>(ruta, init, intento + 1);
   }
   if (!res.ok) {
     throw new Error(`HubSpot ${res.status} en ${ruta}: ${await res.text()}`);
@@ -261,12 +267,12 @@ async function asociacionesV4(hacia: "contacts" | "companies", ids: string[]): P
   const lotes: string[][] = [];
   for (let i = 0; i < ids.length; i += 100) lotes.push(ids.slice(i, i + 100));
 
-  const resultados = await Promise.all(lotes.map((lote) =>
+  const resultados = await conLimiteDeConcurrencia(lotes, 4, (lote) =>
     api<{ results: AsociacionV4Api[] }>(`/crm/v4/associations/deals/${hacia}/batch/read`, {
       method: "POST",
       body: JSON.stringify({ inputs: lote.map((id) => ({ id })) }),
     }),
-  ));
+  );
 
   for (const r of resultados) {
     for (const item of r.results) {

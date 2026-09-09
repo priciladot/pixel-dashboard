@@ -417,7 +417,11 @@ export async function ingestarAnaliticaHubspot(
   db: SupabaseClient,
   datos: {
     etapas: CambioEtapa[];
-    engagements: { porTipo: Partial<Record<TipoEngagement, EngagementCrudo[]>>; sinPermiso: TipoEngagement[] };
+    engagements: {
+      porTipo: Partial<Record<TipoEngagement, EngagementCrudo[]>>;
+      sinPermiso: TipoEngagement[];
+      diagnosticoAsociaciones?: unknown;
+    };
     leads: { leads: LeadCrudo[]; disponible: boolean };
   },
   opciones: { periodoId?: string; simulacion?: boolean },
@@ -550,6 +554,7 @@ export async function ingestarAnaliticaHubspot(
       leads: datos.leads.leads.length,
       leads_disponible: datos.leads.disponible,
       sin_permiso: datos.engagements.sinPermiso,
+      diagnostico_asociaciones: datos.engagements.diagnosticoAsociaciones ?? null,
     };
 
     await db.from("ingestas").update({
