@@ -199,11 +199,11 @@ const ETIQUETA_CATEGORIA_MKT: Record<AccionMarketingCoach["categoria"], string> 
 function CoachMarketing({ acciones }: { acciones: AccionMarketingCoach[] }) {
   if (acciones.length === 0) {
     return (
-      <Card className="px-4 py-3.5" style={{ backgroundColor: "#0ca30c1a", borderColor: "#0ca30c40" }}>
+      <div className="rounded-card border px-4 py-3.5 shadow-sm transition-shadow duration-200 hover:shadow-md" style={{ backgroundColor: "#0ca30c1a", borderColor: "#0ca30c40" }}>
         <p className="text-[13px] text-ink-soft">
           ✅ Sin focos de atención esta semana -- todo tu semáforo está en verde, o todavía no hay KPIs capturados.
         </p>
-      </Card>
+      </div>
     );
   }
   return (

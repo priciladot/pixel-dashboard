@@ -485,6 +485,78 @@ export async function ingestarKpisMarketing(
   }
 }
 
+/** Una fila tal como la manda Lompi en el POST -- ver contrato en la ruta. */
+export type AuditoriaLompiCrudo = {
+  vendedor_email: string;
+  periodo: string;
+  puntaje: number | null;
+  hallazgos: unknown[];
+};
+
+/**
+ * Lompi empuja (no jalamos nosotros): una corrida trae los resultados de
+ * TODOS los vendedores auditados en ese periodo. Se resuelve cada correo
+ * contra profiles.email (vía el mismo diccionario de alias que usa el
+ * resto de la ingesta) y se guarda el correo crudo aunque no haya match,
+ * para poder diagnosticar sin perder el dato.
+ */
+export async function ingestarAuditoriasLompi(
+  db: SupabaseClient,
+  crudos: AuditoriaLompiCrudo[],
+): Promise<{ ingestaId: number; filasOk: number; sinAsignar: number }> {
+  const { data: ingesta, error: errIngesta } = await db
+    .from("ingestas")
+    .insert({ tipo: "lompi_api", filas_leidas: crudos.length })
+    .select("id")
+    .single();
+  if (errIngesta) throw new Error(`No se pudo abrir la ingesta: ${errIngesta.message}`);
+  const ingestaId = ingesta.id as number;
+
+  try {
+    const dic = await cargarDiccionarios(db);
+    let sinAsignar = 0;
+
+    const filas = crudos.map((c) => {
+      const vendedorId = dic.porAlias.get(normalizar(c.vendedor_email)) ?? null;
+      if (!vendedorId) sinAsignar += 1;
+
+      return {
+        vendedor_id: vendedorId,
+        vendedor_email_raw: c.vendedor_email,
+        periodo: c.periodo,
+        puntaje: c.puntaje,
+        hallazgos: c.hallazgos,
+        ingesta_id: ingestaId,
+        raw: c,
+      };
+    });
+
+    for (let i = 0; i < filas.length; i += 500) {
+      const { error } = await db
+        .from("lompi_auditorias")
+        .upsert(filas.slice(i, i + 500), { onConflict: "vendedor_email_raw,periodo" });
+      if (error) throw new Error(`Error al escribir auditorías de Lompi: ${error.message}`);
+    }
+
+    await db.from("ingestas").update({
+      estatus: sinAsignar > 0 ? "completada_con_avisos" : "completada",
+      terminado_en: new Date().toISOString(),
+      filas_ok: filas.length - sinAsignar,
+      filas_sanitizadas: sinAsignar,
+      resumen: { sin_asignar: sinAsignar },
+    }).eq("id", ingestaId);
+
+    return { ingestaId, filasOk: filas.length - sinAsignar, sinAsignar };
+  } catch (e) {
+    await db.from("ingestas").update({
+      estatus: "error",
+      terminado_en: new Date().toISOString(),
+      error: e instanceof Error ? e.message : String(e),
+    }).eq("id", ingestaId);
+    throw e;
+  }
+}
+
 /**
  * Carga historial de etapas, actividades/tareas y leads de HubSpot. Cada
  * pieza es independiente: si `engagements.sinPermiso` trae tipos (por
