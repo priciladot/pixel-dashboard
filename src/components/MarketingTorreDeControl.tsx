@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import {
   vendedores, periodos, periodoActivoDe,
-  kpisMarketingSemanaActual, diagnosticoMarketingCoach, disciplinaMarketing,
-  type KpiMarketing, type AccionMarketingCoach, type DisciplinaMarketing, type RetoSemanaMarketing,
+  kpisMarketingSemanaActual, diagnosticoMarketingCoach, disciplinaMarketing, tareasMarketing,
+  type KpiMarketing, type AccionMarketingCoach, type DisciplinaMarketing, type RetoSemanaMarketing, type TareaMarketing,
 } from "@/lib/queries";
 import type { EstatusReto } from "@/lib/queries";
 import { Card, Seccion, Vacio } from "@/components/ui";
@@ -35,14 +35,17 @@ export async function MarketingTorreDeControl({
   const equipoMarketing = personas.filter((p) => p.rol === "marketing" || p.rol === "marketing_lead");
 
   if (!vendedorIdForzado) {
+    const todasLasTareas = await tareasMarketing();
     const resumenes = await Promise.all(equipoMarketing.map(async (p) => {
       const semanaActual = await kpisMarketingSemanaActual(p.id, periodoId);
+      const tareasPersona = todasLasTareas.filter((t) => t.vendedor_id === p.id);
       return {
         persona: p,
         semanaActual,
         verdes: semanaActual.kpis.filter((k) => k.semaforo === "Verde").length,
         amarillos: semanaActual.kpis.filter((k) => k.semaforo === "Amarillo").length,
         rojos: semanaActual.kpis.filter((k) => k.semaforo === "Rojo").length,
+        atrasadas: tareasPersona.filter((t) => t.dias_para_vencer < 0).length,
       };
     }));
 
@@ -65,7 +68,7 @@ export async function MarketingTorreDeControl({
             <Vacio titulo="No hay personas de Marketing configuradas todavía" detalle="Crea sus cuentas con rol 'marketing' o 'marketing_lead' en profiles." />
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {resumenes.map(({ persona, semanaActual, verdes, amarillos, rojos }) => (
+              {resumenes.map(({ persona, semanaActual, verdes, amarillos, rojos, atrasadas }) => (
                 <a key={persona.id} href={`/mkt/${persona.id}`} className="block">
                   <Card className="px-4 py-4 transition-shadow duration-200 hover:shadow-md">
                     <p className="text-[13px] font-semibold text-ink">{persona.nombre_completo}</p>
@@ -78,6 +81,11 @@ export async function MarketingTorreDeControl({
                       <span style={{ color: "#0ca30c" }}>● {verdes}</span>
                       <span style={{ color: "#8a6100" }}>◐ {amarillos}</span>
                       <span style={{ color: "#d03b3b" }}>▲ {rojos}</span>
+                      {atrasadas > 0 && (
+                        <span className="ml-auto rounded-full bg-[#fdecec] px-2 py-0.5 text-[11px] font-medium text-[#d03b3b]">
+                          ⏰ {atrasadas} atrasada{atrasadas === 1 ? "" : "s"}
+                        </span>
+                      )}
                     </div>
                   </Card>
                 </a>
@@ -90,10 +98,11 @@ export async function MarketingTorreDeControl({
   }
 
   const persona = personas.find((p) => p.id === vendedorIdForzado);
-  const [semanaActual, coach, disciplina] = await Promise.all([
+  const [semanaActual, coach, disciplina, tareas] = await Promise.all([
     kpisMarketingSemanaActual(vendedorIdForzado, periodoId),
     diagnosticoMarketingCoach(vendedorIdForzado, periodoId),
     disciplinaMarketing(vendedorIdForzado, periodoId),
+    tareasMarketing(vendedorIdForzado),
   ]);
 
   return (
@@ -109,6 +118,10 @@ export async function MarketingTorreDeControl({
           </Suspense>
         </div>
       )}
+
+      <Seccion titulo="📋 Pendientes y tareas" descripcion="Entregables asignados por dirección/lead de Marketing -- cuotas mensuales o tareas puntuales, con fecha límite.">
+        <TareasMarketingLista tareas={tareas} />
+      </Seccion>
 
       <Seccion
         titulo="KPIs de esta semana"
@@ -151,6 +164,43 @@ function SemaforoMktBadge({ estado }: { estado: "Verde" | "Amarillo" | "Rojo" | 
       <span aria-hidden="true">{s.icono}</span>
       {s.etiqueta}
     </span>
+  );
+}
+
+/** Pendientes/tareas asignadas a mano (marketing_tareas) -- rojo si ya venció, amarillo si vence en 2 días o menos. */
+function TareasMarketingLista({ tareas }: { tareas: TareaMarketing[] }) {
+  if (tareas.length === 0) {
+    return <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">Sin pendientes abiertos.</Card>;
+  }
+  return (
+    <ul className="space-y-2">
+      {tareas.map((t) => {
+        const atrasada = t.dias_para_vencer < 0;
+        const porVencer = t.dias_para_vencer >= 0 && t.dias_para_vencer <= 2;
+        const color = atrasada ? "#d03b3b" : porVencer ? "#8a6100" : "#0ca30c";
+        const bg = atrasada ? "#fdecec" : porVencer ? "#fdf4e0" : "#e9f7e9";
+        const borde = atrasada ? "#f3c2c2" : porVencer ? "#f2dfae" : "#bfe6bf";
+        const etiquetaFecha = atrasada
+          ? `Venció hace ${Math.abs(t.dias_para_vencer)} día${Math.abs(t.dias_para_vencer) === 1 ? "" : "s"}`
+          : t.dias_para_vencer === 0
+            ? "Vence hoy"
+            : `Vence en ${t.dias_para_vencer} día${t.dias_para_vencer === 1 ? "" : "s"}`;
+        return (
+          <li key={t.id} className="rounded-card border px-4 py-3" style={{ backgroundColor: bg, borderColor: borde }}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[13px] font-medium text-ink">{t.titulo}</p>
+              <span className="text-[11px] font-semibold" style={{ color }}>{etiquetaFecha}</span>
+            </div>
+            {t.descripcion && <p className="mt-1 text-[12px] text-ink-soft">{t.descripcion}</p>}
+            {t.cantidad_requerida != null && (
+              <p className="mt-1 text-[12px] text-ink-muted">
+                Avance: {t.cantidad_actual ?? 0} de {t.cantidad_requerida}
+              </p>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

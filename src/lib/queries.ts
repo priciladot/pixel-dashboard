@@ -1894,17 +1894,40 @@ export interface KpiMarketingSemanaActual {
 }
 
 /**
- * KPIs de la semana vigente (o, si hoy cae fuera del calendario de S1-S4
- * del periodo, la última semana configurada) -- lo que la persona debe
- * revisar/completar AHORA, no un acumulado del mes completo.
+ * Divide un mes CALENDARIO real (periodos.cal_inicio/cal_fin) en 4 semanas
+ * -- NO usa periodo_semanas: esa tabla son las semanas de la ventana de
+ * KPI de VENTAS (4 semanas corridas, ej. el periodo "2026-08" arranca el
+ * 23 de julio), completamente desalineadas del mes de calendario real que
+ * usa el tablero de Marketing en Monday. Reusarla aquí hacía que ningún
+ * KPI de Marketing cayera nunca en la semana "correcta".
+ */
+function semanasDelMes(calInicio: string, calFin: string): Array<{ semana: number; inicio: string; fin: string }> {
+  const fin = new Date(`${calFin}T00:00:00Z`);
+  const semanas: Array<{ semana: number; inicio: string; fin: string }> = [];
+  let cursor = new Date(`${calInicio}T00:00:00Z`);
+  let n = 1;
+  while (cursor <= fin && n <= 4) {
+    const finSemana = n === 4 ? fin : new Date(Math.min(cursor.getTime() + 6 * 86_400_000, fin.getTime()));
+    semanas.push({ semana: n, inicio: cursor.toISOString().slice(0, 10), fin: finSemana.toISOString().slice(0, 10) });
+    cursor = new Date(finSemana.getTime() + 86_400_000);
+    n++;
+  }
+  return semanas;
+}
+
+/**
+ * KPIs de la semana vigente (o, si hoy cae fuera del mes del periodo, la
+ * última semana del mes) -- lo que la persona debe revisar/completar
+ * AHORA, no un acumulado del mes completo. Semanas de CALENDARIO real
+ * (ver semanasDelMes), no las de la ventana de KPI de ventas.
  */
 export async function kpisMarketingSemanaActual(vendedorId: string, periodoId: string): Promise<KpiMarketingSemanaActual> {
   const supabase = await createClient();
-  const hoy = new Date().toISOString().slice(0, 10);
+  const { data: periodo } = await supabase.from("periodos").select("cal_inicio, cal_fin").eq("id", periodoId).maybeSingle();
+  if (!periodo) return { semana: null, inicio: null, fin: null, kpis: [] };
 
-  const { data: semanas } = await supabase
-    .from("periodo_semanas").select("semana, inicio, fin").eq("periodo_id", periodoId).order("semana");
-  const lista = semanas ?? [];
+  const hoy = new Date().toISOString().slice(0, 10);
+  const lista = semanasDelMes(periodo.cal_inicio, periodo.cal_fin);
   const actual = lista.find((s) => hoy >= s.inicio && hoy <= s.fin) ?? lista[lista.length - 1] ?? null;
   if (!actual) return { semana: null, inicio: null, fin: null, kpis: [] };
 
@@ -2020,10 +2043,10 @@ export interface DisciplinaMarketing {
  */
 export async function disciplinaMarketing(vendedorId: string, periodoId: string): Promise<DisciplinaMarketing | null> {
   const supabase = await createClient();
-  const { data: semanas } = await supabase
-    .from("periodo_semanas").select("semana, inicio, fin").eq("periodo_id", periodoId).order("semana", { ascending: true });
-  if (!semanas || semanas.length === 0) return null;
+  const { data: periodo } = await supabase.from("periodos").select("cal_inicio, cal_fin").eq("id", periodoId).maybeSingle();
+  if (!periodo) return null;
 
+  const semanas = semanasDelMes(periodo.cal_inicio, periodo.cal_fin);
   const hoy = new Date().toISOString().slice(0, 10);
 
   const filas: RetoSemanaMarketing[] = await Promise.all(semanas.map(async (s): Promise<RetoSemanaMarketing> => {
@@ -2056,4 +2079,34 @@ export async function disciplinaMarketing(vendedorId: string, periodoId: string)
   }
 
   return { semanas: filas, rachaSemanas };
+}
+
+export interface TareaMarketing {
+  id: number;
+  vendedor_id: string;
+  titulo: string;
+  descripcion: string | null;
+  tipo: "cuota_mensual" | "suelta";
+  cantidad_requerida: number | null;
+  cantidad_actual: number | null;
+  fecha_limite: string;
+  dias_para_vencer: number;
+}
+
+/** Pendientes/tareas de Marketing abiertas (marketing_tareas), con días para vencer (negativo = atrasada). */
+export async function tareasMarketing(vendedorId?: string): Promise<TareaMarketing[]> {
+  const supabase = await createClient();
+  let q = supabase.from("marketing_tareas").select("*").eq("estatus", "pendiente");
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.order("fecha_limite", { ascending: true });
+
+  const hoy = new Date(); hoy.setUTCHours(0, 0, 0, 0);
+  return ((data as Array<{
+    id: number; vendedor_id: string; titulo: string; descripcion: string | null;
+    tipo: "cuota_mensual" | "suelta"; cantidad_requerida: number | null; cantidad_actual: number | null;
+    fecha_limite: string;
+  }>) ?? []).map((t) => ({
+    ...t,
+    dias_para_vencer: Math.round((new Date(`${t.fecha_limite}T00:00:00Z`).getTime() - hoy.getTime()) / 86_400_000),
+  }));
 }
