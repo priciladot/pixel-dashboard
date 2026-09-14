@@ -221,12 +221,13 @@ function HistorialMarketingTabla({ historial }: { historial: ResumenMarketingMes
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px] border-collapse text-[13px]">
+        <table className="w-full min-w-[820px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
               <th className="px-4 py-2.5 font-medium">Mes</th>
               <th className="px-4 py-2.5 font-medium">KPIs capturados</th>
               <th className="px-4 py-2.5 font-medium">Verde / Amarillo / Rojo</th>
+              <th className="px-4 py-2.5 font-medium">Detalle por KPI (peor color del mes)</th>
             </tr>
           </thead>
           <tbody>
@@ -240,6 +241,9 @@ function HistorialMarketingTabla({ historial }: { historial: ResumenMarketingMes
                   <span style={{ color: "#0ca30c" }}>{m.verdes}</span>{" / "}
                   <span style={{ color: "#8a6100" }}>{m.amarillos}</span>{" / "}
                   <span style={{ color: "#d03b3b" }}>{m.rojos}</span>
+                </td>
+                <td className="px-4 py-2.5">
+                  <ChipsKpiPorColor detalle={m.detalleKpis} />
                 </td>
               </tr>
             ))}
@@ -342,6 +346,29 @@ function EstatusBadgeMkt({ estado }: { estado: EstatusReto }) {
   );
 }
 
+/** Chips de nombre_kpi coloreados por semáforo -- reusado por la tabla semanal y la de histórico mensual. */
+function ChipsKpiPorColor({ detalle }: { detalle: Array<{ nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" }> }) {
+  if (detalle.length === 0) return <span className="text-ink-muted">—</span>;
+  const ESTILO = {
+    Verde: { color: "#0ca30c", backgroundColor: "#e9f7e9" },
+    Amarillo: { color: "#8a6100", backgroundColor: "#fdf4e0" },
+    Rojo: { color: "#d03b3b", backgroundColor: "#fdecec" },
+  } as const;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {detalle.map((k, i) => (
+        <span
+          key={`${k.nombre_kpi}-${i}`}
+          className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={ESTILO[k.semaforo]}
+        >
+          {k.nombre_kpi}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function DisciplinaMarketingTabla({ disciplina }: { disciplina: DisciplinaMarketing }) {
   const { semanas, rachaSemanas } = disciplina;
   if (semanas.length === 0) {
@@ -369,7 +396,7 @@ function DisciplinaMarketingTabla({ disciplina }: { disciplina: DisciplinaMarket
                 <th className="px-4 py-2.5 font-medium">KPIs</th>
                 <th className="px-4 py-2.5 font-medium">Verde / Amarillo / Rojo</th>
                 <th className="px-4 py-2.5 font-medium">Estatus</th>
-                <th className="px-4 py-2.5 font-medium">KPIs en riesgo</th>
+                <th className="px-4 py-2.5 font-medium">Detalle por KPI</th>
               </tr>
             </thead>
             <tbody>
@@ -386,25 +413,7 @@ function DisciplinaMarketingTabla({ disciplina }: { disciplina: DisciplinaMarket
                   <td className="px-4 py-2.5 tabular text-ink-soft">{s.cumplidos} / {s.amarillos} / {s.rojos}</td>
                   <td className="px-4 py-2.5"><EstatusBadgeMkt estado={s.estatus} /></td>
                   <td className="px-4 py-2.5">
-                    {s.enRiesgo.length === 0 ? (
-                      <span className="text-ink-muted">—</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {s.enRiesgo.map((k, i) => (
-                          <span
-                            key={`${k.nombre_kpi}-${i}`}
-                            className="rounded-full px-2 py-0.5 text-[11px] font-medium"
-                            style={
-                              k.semaforo === "Rojo"
-                                ? { color: "#d03b3b", backgroundColor: "#fdecec" }
-                                : { color: "#8a6100", backgroundColor: "#fdf4e0" }
-                            }
-                          >
-                            {k.nombre_kpi}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    <ChipsKpiPorColor detalle={s.detalleKpis} />
                   </td>
                 </tr>
               ))}

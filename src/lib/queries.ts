@@ -2025,7 +2025,7 @@ export interface RetoSemanaMarketing {
   cumplidos: number;
   amarillos: number;
   rojos: number;
-  enRiesgo: Array<{ nombre_kpi: string; semaforo: "Amarillo" | "Rojo" }>;
+  detalleKpis: Array<{ nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" }>;
   estatus: EstatusReto;
 }
 
@@ -2055,7 +2055,7 @@ export async function disciplinaMarketing(vendedorId: string, periodoId: string)
     const base = { semana: s.semana, etiqueta: `S${s.semana}`, inicio: s.inicio, fin: s.fin, esSemanaActual };
 
     if (hoy < s.inicio) {
-      return { ...base, totalKpis: 0, cumplidos: 0, amarillos: 0, rojos: 0, enRiesgo: [], estatus: "pendiente" };
+      return { ...base, totalKpis: 0, cumplidos: 0, amarillos: 0, rojos: 0, detalleKpis: [], estatus: "pendiente" };
     }
 
     const { data } = await supabase
@@ -2068,13 +2068,14 @@ export async function disciplinaMarketing(vendedorId: string, periodoId: string)
     const cumplidos = kpis.filter((k) => k.semaforo === "Verde").length;
     const amarillos = kpis.filter((k) => k.semaforo === "Amarillo").length;
     const rojos = kpis.filter((k) => k.semaforo === "Rojo").length;
-    const enRiesgo = kpis
-      .filter((k): k is { nombre_kpi: string; semaforo: "Amarillo" | "Rojo" } => k.semaforo === "Amarillo" || k.semaforo === "Rojo")
-      .sort((a) => (a.semaforo === "Rojo" ? -1 : 1))
+    const ordenSemaforo = { Rojo: 0, Amarillo: 1, Verde: 2 } as const;
+    const detalleKpis = kpis
+      .filter((k): k is { nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" } => k.semaforo != null)
+      .sort((a, b) => ordenSemaforo[a.semaforo] - ordenSemaforo[b.semaforo])
       .map((k) => ({ nombre_kpi: k.nombre_kpi, semaforo: k.semaforo }));
     const estatus: EstatusReto = kpis.length === 0 ? "sin_dato" : rojos > 0 ? "no_alcanzado" : amarillos > 0 ? "en_progreso" : "cumplido";
 
-    return { ...base, totalKpis: kpis.length, cumplidos, amarillos, rojos, enRiesgo, estatus };
+    return { ...base, totalKpis: kpis.length, cumplidos, amarillos, rojos, detalleKpis, estatus };
   }));
 
   const evaluables = filas.filter((f) => f.fin <= hoy);
@@ -2093,9 +2094,18 @@ export interface ResumenMarketingMes {
   amarillos: number;
   rojos: number;
   totalKpis: number;
+  detalleKpis: Array<{ nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" }>;
 }
 
-/** Resumen del mes completo (verde/amarillo/rojo) para varios periodos a la vez -- histórico combinado, sin tener que cambiar el selector uno por uno. */
+/**
+ * Resumen del mes completo (verde/amarillo/rojo, y el detalle de QUÉ KPI
+ * fue cada color) para varios periodos a la vez -- histórico combinado,
+ * sin tener que cambiar el selector uno por uno. Mismo detalle por KPI
+ * que ya usa disciplinaMarketing() por semana; con esto ya se puede armar
+ * un Coach de Marketing retrospectivo (no solo de la semana vigente),
+ * sin pedir nada nuevo a Monday -- ver diagnosticoMarketingCoach() para
+ * el patrón de mensaje por KPI que se reutilizaría.
+ */
 export async function historialMarketingMensual(vendedorId: string, periodoIds: string[]): Promise<ResumenMarketingMes[]> {
   const supabase = await createClient();
   const { data: periodosData } = await supabase
@@ -2108,11 +2118,25 @@ export async function historialMarketingMensual(vendedorId: string, periodoIds: 
 
     const { data } = await supabase
       .from("marketing_kpis")
-      .select("semaforo")
+      .select("nombre_kpi, semaforo")
       .contains("responsable_ids", [vendedorId])
       .gte("cronograma_inicio", p.cal_inicio)
       .lte("cronograma_inicio", p.cal_fin);
-    const kpis = (data as Array<{ semaforo: string | null }>) ?? [];
+    const kpis = (data as Array<{ nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" | null }>) ?? [];
+    const ordenSemaforo = { Rojo: 0, Amarillo: 1, Verde: 2 } as const;
+
+    // Un mismo KPI aparece una vez por semana (hasta 4 veces al mes) -- se
+    // agrupa por nombre y se queda con el peor semáforo del mes, para no
+    // repetir 4 chips idénticos de la misma métrica.
+    const peorPorKpi = new Map<string, "Verde" | "Amarillo" | "Rojo">();
+    for (const k of kpis) {
+      if (!k.semaforo) continue;
+      const actual = peorPorKpi.get(k.nombre_kpi);
+      if (!actual || ordenSemaforo[k.semaforo] < ordenSemaforo[actual]) peorPorKpi.set(k.nombre_kpi, k.semaforo);
+    }
+    const detalleKpis = [...peorPorKpi.entries()]
+      .sort((a, b) => ordenSemaforo[a[1]] - ordenSemaforo[b[1]])
+      .map(([nombre_kpi, semaforo]) => ({ nombre_kpi, semaforo }));
 
     return {
       periodoId: id,
@@ -2121,6 +2145,7 @@ export async function historialMarketingMensual(vendedorId: string, periodoIds: 
       amarillos: kpis.filter((k) => k.semaforo === "Amarillo").length,
       rojos: kpis.filter((k) => k.semaforo === "Rojo").length,
       totalKpis: kpis.length,
+      detalleKpis,
     };
   }));
 
