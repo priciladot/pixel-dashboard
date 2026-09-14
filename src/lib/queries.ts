@@ -1968,11 +1968,38 @@ export interface AccionMarketingCoach {
  * catálogo de KPIs en Monday puede crecer sin que este código se entere.
  * Una métrica que no matchea ningún patrón cae en el mensaje "general".
  */
-const TACTICAS_MARKETING_POR_KPI: Array<{ patron: RegExp; categoria: CategoriaMarketingCoach; tactica: string }> = [
+/**
+ * Quién corre campañas PAGADAS (Meta Ads / Google Ads / Pinterest Ads) --
+ * confirmado el 2026-09-14 contra los tableros reales de Monday (ADS |
+ * KPIS y PINTEREST | KPIS son de Alan, sin columna de persona propia).
+ * Para esta gente, "leads/MQL/CTR en rojo" se resuelve ajustando
+ * presupuesto/segmentación de campaña, NO variando formato de post
+ * orgánico -- son acciones distintas, y darle a Alan el consejo de
+ * "prueba un video vs. una imagen" no es información accionable para
+ * alguien que gasta presupuesto de pauta, no que publica contenido.
+ */
+const PROPIETARIOS_ADS_PAGADOS = new Set<string>([
+  "0ea16abc-3ed3-4910-87a7-e9026ddf8626", // Alan Morales Vega
+]);
+
+/**
+ * Biblioteca chica de tácticas por tipo de métrica -- coincide contra el
+ * nombre real del KPI (nombre_kpi), no contra un id inventado, porque el
+ * catálogo de KPIs en Monday puede crecer sin que este código se entere.
+ * Una métrica que no matchea ningún patrón cae en el mensaje "general".
+ * Las categorías leads/engagement tienen una variante para quien corre
+ * pauta pagada (ver PROPIETARIOS_ADS_PAGADOS) -- el resto del equipo
+ * (orgánico/contenido) recibe la táctica original.
+ */
+const TACTICAS_MARKETING_POR_KPI: Array<{
+  patron: RegExp; categoria: CategoriaMarketingCoach; tactica: string; tacticaAdsPagados?: string;
+}> = [
   { patron: /leads?\s+calificados?/i, categoria: "leads",
-    tactica: "Revisa el criterio de calificación con ventas -- puede que el volumen esté bien pero la calidad se esté cayendo antes de tiempo. Prioriza los canales que ya te han dado leads calificados este mes." },
+    tactica: "Revisa el criterio de calificación con ventas -- puede que el volumen esté bien pero la calidad se esté cayendo antes de tiempo. Prioriza los canales que ya te han dado leads calificados este mes.",
+    tacticaAdsPagados: "Revisa el desempeño por campaña en Meta/Google Ads: pausa o baja presupuesto a las de mayor gasto con menor tasa de leads calificados y redistribúyelo a las que sí convierten. Casi siempre es un problema de segmentación/audiencia, no de creatividad." },
   { patron: /\bmql\b|\bsql\b/i, categoria: "leads",
-    tactica: "Si los leads entran pero no avanzan, revisa el mensaje de las campañas activas -- suele ser un problema de segmentación, no de volumen." },
+    tactica: "Si los leads entran pero no avanzan, revisa el mensaje de las campañas activas -- suele ser un problema de segmentación, no de volumen.",
+    tacticaAdsPagados: "Compara qué campaña específica está aportando los leads que sí avanzan a MQL/SQL contra las que solo aportan volumen -- mueve presupuesto hacia la que convierte en vez de ajustar el copy de todas por igual." },
   { patron: /tiempo.*respuesta/i, categoria: "respuesta",
     tactica: "Ten plantillas de primera respuesta listas para los canales más lentos y activa notificaciones inmediatas de mensajes nuevos." },
   { patron: /tiempo.*asignaci[oó]n/i, categoria: "respuesta",
@@ -1980,18 +2007,21 @@ const TACTICAS_MARKETING_POR_KPI: Array<{ patron: RegExp; categoria: CategoriaMa
   { patron: /engagement/i, categoria: "engagement",
     tactica: "Prueba variar el formato de los próximos 3 posts (video corto vs. imagen estática) y compara el engagement real entre ellos." },
   { patron: /\bctr\b/i, categoria: "engagement",
-    tactica: "Revisa el hook de los primeros 3 segundos (o la primera línea del copy) -- ahí se decide la mayoría de los clics." },
+    tactica: "Revisa el hook de los primeros 3 segundos (o la primera línea del copy) -- ahí se decide la mayoría de los clics.",
+    tacticaAdsPagados: "Revisa el creativo y la segmentación de las campañas activas: un CTR bajo casi siempre es fatiga de creativo (cambia ángulo/formato del anuncio) o audiencia mal afinada -- no un tema de copy." },
   { patron: /exactitud.*(crm|registro)|registro.*(crm|monday)/i, categoria: "crm",
     tactica: "Bloquea 15 minutos al final del día solo para actualizar CRM/Monday -- un dato incompleto hoy afecta a todo el equipo mañana, no solo a Marketing." },
   { patron: /contenido|im[aá]genes|pines|visitas? web|cambios? en la web/i, categoria: "contenido",
     tactica: "Adelanta el contenido de la próxima semana desde ahora para no depender de producción de último momento." },
 ];
 
-function tacticaMarketingPara(nombreKpi: string): { categoria: CategoriaMarketingCoach; tactica: string } {
+function tacticaMarketingPara(nombreKpi: string, vendedorId: string): { categoria: CategoriaMarketingCoach; tactica: string } {
+  const esAdsPagados = PROPIETARIOS_ADS_PAGADOS.has(vendedorId);
   const match = TACTICAS_MARKETING_POR_KPI.find((t) => t.patron.test(nombreKpi));
-  return match
-    ? { categoria: match.categoria, tactica: match.tactica }
-    : { categoria: "general", tactica: "Revisa qué cambió esta semana respecto a las semanas que sí cumplieron la meta -- casi siempre hay una causa concreta identificable, no solo variación normal." };
+  if (!match) {
+    return { categoria: "general", tactica: "Revisa qué cambió esta semana respecto a las semanas que sí cumplieron la meta -- casi siempre hay una causa concreta identificable, no solo variación normal." };
+  }
+  return { categoria: match.categoria, tactica: esAdsPagados && match.tacticaAdsPagados ? match.tacticaAdsPagados : match.tactica };
 }
 
 const UNIDAD_SUFIJO: Record<string, string> = { Porcentaje: "%", Tiempo: " min" };
@@ -2014,7 +2044,7 @@ export async function diagnosticoMarketingCoach(vendedorId: string, periodoId: s
   if (enRiesgo.length === 0) return [];
 
   return enRiesgo.map((k) => {
-    const { categoria, tactica } = tacticaMarketingPara(k.nombre_kpi);
+    const { categoria, tactica } = tacticaMarketingPara(k.nombre_kpi, vendedorId);
     const sufijo = k.unidad ? UNIDAD_SUFIJO[k.unidad] ?? "" : "";
     const brecha = k.meta != null && k.resultado != null ? k.meta - k.resultado : null;
     const diagnostico = k.semaforo === "Rojo" ? `${k.nombre_kpi} -- en rojo` : `${k.nombre_kpi} -- en amarillo`;
