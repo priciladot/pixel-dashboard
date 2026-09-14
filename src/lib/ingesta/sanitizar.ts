@@ -85,6 +85,8 @@ export interface Diccionarios {
   porAlias: Map<string, string>;
   /** monday_person_id -> profiles.id (equipo de Marketing) */
   porMondayId: Map<string, string>;
+  /** profiles.telefono -> profiles.id (Lompi identifica por WhatsApp) */
+  porTelefono: Map<string, string>;
   /** periodos con sus ventanas de KPI */
   periodos: Array<{ id: string; kpi_inicio: string; kpi_fin: string; cal_inicio: string; cal_fin: string }>;
   /** categorías válidas del catálogo de pérdida */
@@ -92,6 +94,11 @@ export interface Diccionarios {
 }
 
 /** Quita acentos, colapsa espacios y baja a minúsculas. */
+export function normalizarTelefono(telefono: string): string {
+  const soloDigitos = telefono.replace(/\D/g, "");
+  return soloDigitos.slice(-10);
+}
+
 export function normalizar(texto: string): string {
   return texto
     .normalize("NFD")

@@ -10,7 +10,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  agregarPorVendedor, normalizar, sanearLote,
+  agregarPorVendedor, normalizar, normalizarTelefono, sanearLote,
   type DealCrudo, type Diccionarios, type DealSaneado,
 } from "./sanitizar";
 import { resolverVendedor, type CierreCrudo } from "./monday";
@@ -19,7 +19,7 @@ import { buscarContactosPorId, type CambioEtapa, type EngagementCrudo, type Lead
 
 export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionarios> {
   const [perfiles, alias, mapaOwners, periodos, catalogo] = await Promise.all([
-    db.from("profiles").select("id, hubspot_owner_id, monday_person_id, nombre_completo, nombre_corto, email"),
+    db.from("profiles").select("id, hubspot_owner_id, monday_person_id, telefono, nombre_completo, nombre_corto, email"),
     db.from("profile_alias").select("vendedor_id, alias"),
     db.from("hubspot_owner_map").select("owner_id, vendedor_id, nombre_raw"),
     db.from("periodos").select("id, kpi_inicio, kpi_fin, cal_inicio, cal_fin"),
@@ -29,10 +29,12 @@ export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionari
   const porOwnerId = new Map<string, string>();
   const porAlias = new Map<string, string>();
   const porMondayId = new Map<string, string>();
+  const porTelefono = new Map<string, string>();
 
   for (const p of perfiles.data ?? []) {
     if (p.hubspot_owner_id) porOwnerId.set(String(p.hubspot_owner_id), p.id);
     if (p.monday_person_id) porMondayId.set(String(p.monday_person_id), p.id);
+    if (p.telefono) porTelefono.set(normalizarTelefono(p.telefono), p.id);
     [p.nombre_completo, p.nombre_corto, p.email].filter(Boolean)
       .forEach((a: string) => porAlias.set(normalizar(a), p.id));
   }
@@ -49,6 +51,7 @@ export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionari
     porOwnerId,
     porAlias,
     porMondayId,
+    porTelefono,
     periodos: periodos.data ?? [],
     categoriasPerdida: (catalogo.data ?? []).map((c) => c.categoria),
   };
@@ -547,6 +550,119 @@ export async function ingestarAuditoriasLompi(
     }).eq("id", ingestaId);
 
     return { ingestaId, filasOk: filas.length - sinAsignar, sinAsignar };
+  } catch (e) {
+    await db.from("ingestas").update({
+      estatus: "error",
+      terminado_en: new Date().toISOString(),
+      error: e instanceof Error ? e.message : String(e),
+    }).eq("id", ingestaId);
+    throw e;
+  }
+}
+
+/** Un pendiente individual tal como lo manda Lompi -- ver contrato en la ruta. */
+export type PendienteLompiCrudo = {
+  vendedor_telefono?: string;
+  vendedor_email?: string;
+  clave_externa?: string;
+  tipo: string;
+  descripcion?: string;
+};
+
+/**
+ * A diferencia de ingestarAuditoriasLompi() (un puntaje por periodo), aquí
+ * cada corrida trae la FOTO de lo que sigue pendiente AHORA: se resuelve
+ * cada pendiente contra los que ya estaban abiertos en la base (por
+ * clave_externa si Lompi la manda, si no por vendedor+tipo+descripción) y
+ * se hace el diff -- lo que ya no aparece se marca resuelto, lo nuevo se
+ * abre, lo que sigue igual solo actualiza "ultima_vez_visto" (su fecha de
+ * detección original NO cambia, es la base para "lleva N días sin atender").
+ */
+export async function ingestarPendientesLompi(
+  db: SupabaseClient,
+  crudos: PendienteLompiCrudo[],
+): Promise<{ ingestaId: number; abiertos: number; resueltos: number; sinAsignar: number }> {
+  const { data: ingesta, error: errIngesta } = await db
+    .from("ingestas")
+    .insert({ tipo: "lompi_api", filas_leidas: crudos.length })
+    .select("id")
+    .single();
+  if (errIngesta) throw new Error(`No se pudo abrir la ingesta: ${errIngesta.message}`);
+  const ingestaId = ingesta.id as number;
+
+  try {
+    const dic = await cargarDiccionarios(db);
+    let sinAsignar = 0;
+
+    const resueltos = crudos.map((c) => {
+      const vendedorId: string | null =
+        (c.vendedor_telefono ? dic.porTelefono.get(normalizarTelefono(c.vendedor_telefono)) : undefined) ??
+        (c.vendedor_email ? dic.porAlias.get(normalizar(c.vendedor_email)) : undefined) ??
+        null;
+      if (!vendedorId) sinAsignar += 1;
+
+      const refRaw = c.vendedor_telefono ?? c.vendedor_email ?? "desconocido";
+      const clave = c.clave_externa ?? `${vendedorId ?? refRaw}|${c.tipo}|${c.descripcion ?? ""}`;
+
+      return { crudo: c, vendedorId, refRaw, clave };
+    });
+
+    const { data: abiertosActuales } = await db
+      .from("lompi_pendientes")
+      .select("id, clave_externa, vendedor_id, tipo, descripcion")
+      .is("resuelto_en", null);
+
+    const claveDeFila = (f: { clave_externa: string | null; vendedor_id: string | null; tipo: string; descripcion: string | null }) =>
+      f.clave_externa ?? `${f.vendedor_id ?? "desconocido"}|${f.tipo}|${f.descripcion ?? ""}`;
+
+    const abiertosPorClave = new Map((abiertosActuales ?? []).map((f) => [claveDeFila(f), f]));
+    const clavesEntrantes = new Set(resueltos.map((r) => r.clave));
+
+    const ahora = new Date().toISOString();
+
+    const nuevos = resueltos.filter((r) => !abiertosPorClave.has(r.clave));
+    if (nuevos.length > 0) {
+      const filas = nuevos.map((r) => ({
+        clave_externa: r.crudo.clave_externa ?? null,
+        vendedor_id: r.vendedorId,
+        vendedor_ref_raw: r.refRaw,
+        tipo: r.crudo.tipo,
+        descripcion: r.crudo.descripcion ?? null,
+        detectado_en: ahora,
+        ultima_vez_visto: ahora,
+        ingesta_id: ingestaId,
+        raw: r.crudo,
+      }));
+      for (let i = 0; i < filas.length; i += 500) {
+        const { error } = await db.from("lompi_pendientes").insert(filas.slice(i, i + 500));
+        if (error) throw new Error(`Error al abrir pendientes de Lompi: ${error.message}`);
+      }
+    }
+
+    const siguenAbiertos = resueltos.filter((r) => abiertosPorClave.has(r.clave));
+    if (siguenAbiertos.length > 0) {
+      const ids = siguenAbiertos.map((r) => abiertosPorClave.get(r.clave)!.id);
+      const { error } = await db.from("lompi_pendientes").update({ ultima_vez_visto: ahora }).in("id", ids);
+      if (error) throw new Error(`Error al refrescar pendientes de Lompi: ${error.message}`);
+    }
+
+    const yaAtendidos = (abiertosActuales ?? []).filter((f) => !clavesEntrantes.has(claveDeFila(f)));
+    if (yaAtendidos.length > 0) {
+      const { error } = await db.from("lompi_pendientes")
+        .update({ resuelto_en: ahora })
+        .in("id", yaAtendidos.map((f) => f.id));
+      if (error) throw new Error(`Error al cerrar pendientes de Lompi: ${error.message}`);
+    }
+
+    await db.from("ingestas").update({
+      estatus: sinAsignar > 0 ? "completada_con_avisos" : "completada",
+      terminado_en: ahora,
+      filas_ok: crudos.length - sinAsignar,
+      filas_sanitizadas: sinAsignar,
+      resumen: { abiertos_o_actualizados: resueltos.length, resueltos: yaAtendidos.length, sin_asignar: sinAsignar },
+    }).eq("id", ingestaId);
+
+    return { ingestaId, abiertos: resueltos.length, resueltos: yaAtendidos.length, sinAsignar };
   } catch (e) {
     await db.from("ingestas").update({
       estatus: "error",

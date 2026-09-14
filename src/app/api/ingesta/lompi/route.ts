@@ -1,7 +1,10 @@
 import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ingestarAuditoriasLompi, type AuditoriaLompiCrudo } from "@/lib/ingesta/cargar";
+import {
+  ingestarAuditoriasLompi, ingestarPendientesLompi,
+  type AuditoriaLompiCrudo, type PendienteLompiCrudo,
+} from "@/lib/ingesta/cargar";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,7 +18,8 @@ export const maxDuration = 60;
  * un API key propio en `Authorization: Bearer <LOMPI_API_KEY>`, generado
  * por nosotros y entregado solo a Lompi (nunca vive en este repo).
  *
- * Contrato del body:
+ * Contrato del body (ambos campos son opcionales, pero al menos uno debe
+ * venir):
  * {
  *   "resultados": [
  *     {
@@ -24,8 +28,23 @@ export const maxDuration = 60;
  *       "puntaje": 87.5,
  *       "hallazgos": [{ "titulo": "...", "detalle": "...", "severidad": "alto" }]
  *     }
+ *   ],
+ *   "pendientes": [
+ *     {
+ *       "vendedor_telefono": "3312345678",
+ *       "tipo": "whatsapp",
+ *       "clave_externa": "id-propio-de-lompi-si-lo-tiene",
+ *       "descripcion": "Cliente Juan Pérez sin responder desde ayer"
+ *     }
  *   ]
  * }
+ *
+ * IMPORTANTE sobre "pendientes": cada llamada debe traer la FOTO COMPLETA
+ * de todo lo que sigue pendiente en ESE MOMENTO (de todos los vendedores),
+ * no solo lo nuevo -- este endpoint compara contra lo que ya teníamos
+ * abierto y cierra automáticamente lo que ya no aparece (lo interpreta
+ * como atendido). Si se manda un subconjunto, va a marcar como "atendido"
+ * todo lo que se haya quedado fuera por error.
  */
 
 function autenticado(req: Request): boolean {
@@ -42,7 +61,7 @@ function autenticado(req: Request): boolean {
   return timingSafeEqual(a, b);
 }
 
-function filaValida(r: unknown): r is AuditoriaLompiCrudo {
+function resultadoValido(r: unknown): r is AuditoriaLompiCrudo {
   if (!r || typeof r !== "object") return false;
   const x = r as Record<string, unknown>;
   return (
@@ -50,6 +69,19 @@ function filaValida(r: unknown): r is AuditoriaLompiCrudo {
     typeof x.periodo === "string" && x.periodo.length > 0 &&
     (x.puntaje === null || x.puntaje === undefined || typeof x.puntaje === "number") &&
     (x.hallazgos === undefined || Array.isArray(x.hallazgos))
+  );
+}
+
+function pendienteValido(r: unknown): r is PendienteLompiCrudo {
+  if (!r || typeof r !== "object") return false;
+  const x = r as Record<string, unknown>;
+  return (
+    typeof x.tipo === "string" && x.tipo.length > 0 &&
+    (x.vendedor_telefono === undefined || typeof x.vendedor_telefono === "string") &&
+    (x.vendedor_email === undefined || typeof x.vendedor_email === "string") &&
+    (x.clave_externa === undefined || typeof x.clave_externa === "string") &&
+    (x.descripcion === undefined || typeof x.descripcion === "string") &&
+    (x.vendedor_telefono || x.vendedor_email)
   );
 }
 
@@ -65,28 +97,52 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const resultados = (body as { resultados?: unknown })?.resultados;
-  if (!Array.isArray(resultados) || resultados.length === 0) {
-    return NextResponse.json({ error: "Falta 'resultados' (arreglo no vacío)" }, { status: 400 });
+  const { resultados, pendientes } = body as { resultados?: unknown; pendientes?: unknown };
+
+  if (resultados === undefined && pendientes === undefined) {
+    return NextResponse.json({ error: "Manda al menos 'resultados' o 'pendientes'" }, { status: 400 });
   }
-  if (!resultados.every(filaValida)) {
+  if (resultados !== undefined && (!Array.isArray(resultados) || !resultados.every(resultadoValido))) {
     return NextResponse.json(
-      { error: "Cada resultado necesita vendedor_email (string) y periodo (string); puntaje y hallazgos son opcionales" },
+      { error: "'resultados' debe ser un arreglo; cada fila necesita vendedor_email (string) y periodo (string)" },
+      { status: 400 },
+    );
+  }
+  if (pendientes !== undefined && (!Array.isArray(pendientes) || !pendientes.every(pendienteValido))) {
+    return NextResponse.json(
+      { error: "'pendientes' debe ser un arreglo; cada fila necesita tipo (string) y vendedor_telefono o vendedor_email" },
       { status: 400 },
     );
   }
 
-  const crudos: AuditoriaLompiCrudo[] = resultados.map((r) => ({
-    vendedor_email: r.vendedor_email,
-    periodo: r.periodo,
-    puntaje: r.puntaje ?? null,
-    hallazgos: r.hallazgos ?? [],
-  }));
-
   const db = createAdminClient();
   try {
-    const r = await ingestarAuditoriasLompi(db, crudos);
-    return NextResponse.json({ ok: true, filasOk: r.filasOk, sinAsignar: r.sinAsignar });
+    const respuesta: Record<string, unknown> = { ok: true };
+
+    if (Array.isArray(resultados) && resultados.length > 0) {
+      const crudos: AuditoriaLompiCrudo[] = resultados.map((r) => ({
+        vendedor_email: r.vendedor_email,
+        periodo: r.periodo,
+        puntaje: r.puntaje ?? null,
+        hallazgos: r.hallazgos ?? [],
+      }));
+      const r = await ingestarAuditoriasLompi(db, crudos);
+      respuesta.resultados = { filasOk: r.filasOk, sinAsignar: r.sinAsignar };
+    }
+
+    if (Array.isArray(pendientes)) {
+      const crudos: PendienteLompiCrudo[] = pendientes.map((p) => ({
+        vendedor_telefono: p.vendedor_telefono,
+        vendedor_email: p.vendedor_email,
+        clave_externa: p.clave_externa,
+        tipo: p.tipo,
+        descripcion: p.descripcion,
+      }));
+      const r = await ingestarPendientesLompi(db, crudos);
+      respuesta.pendientes = { abiertos: r.abiertos, resueltos: r.resueltos, sinAsignar: r.sinAsignar };
+    }
+
+    return NextResponse.json(respuesta);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Error desconocido en la ingesta" },

@@ -397,6 +397,74 @@ export async function dealsEstancados(vendedorId?: string, diasUmbral = 7): Prom
   });
 }
 
+export interface PendienteLompi {
+  id: number;
+  vendedor_id: string | null;
+  tipo: string;
+  descripcion: string | null;
+  detectado_en: string;
+  dias_sin_atender: number;
+}
+
+/** Pendientes de Lompi (ej. WhatsApp sin responder) que siguen abiertos, con su antigüedad en días. */
+export async function pendientesLompiAbiertos(vendedorId?: string): Promise<PendienteLompi[]> {
+  const supabase = await createClient();
+  let q = supabase.from("lompi_pendientes")
+    .select("id, vendedor_id, tipo, descripcion, detectado_en")
+    .is("resuelto_en", null);
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.order("detectado_en", { ascending: true }).limit(200);
+
+  const ahora = Date.now();
+  return ((data as Array<{ id: number; vendedor_id: string | null; tipo: string; descripcion: string | null; detectado_en: string }>) ?? [])
+    .map((f) => ({
+      ...f,
+      dias_sin_atender: Math.floor((ahora - new Date(f.detectado_en).getTime()) / 86_400_000),
+    }));
+}
+
+/**
+ * Racha de días consecutivos (hoy hacia atrás) en los que el vendedor NO
+ * tuvo ningún pendiente de WhatsApp con `umbralDias` o más sin atender --
+ * es decir, estuvo al día. Se reconstruye desde el historial completo de
+ * detectado_en/resuelto_en, así que no depende de que Lompi haya corrido
+ * exactamente una vez por día calendario.
+ */
+export async function rachaLompiWhatsapp(vendedorId: string, umbralDias = 3, diasRacha = 7): Promise<number> {
+  const supabase = await createClient();
+  const desde = new Date();
+  desde.setDate(desde.getDate() - (diasRacha + umbralDias + 1));
+
+  const { data } = await supabase
+    .from("lompi_pendientes")
+    .select("detectado_en, resuelto_en")
+    .eq("vendedor_id", vendedorId)
+    .eq("tipo", "whatsapp")
+    .gte("detectado_en", desde.toISOString());
+
+  const filas = (data as Array<{ detectado_en: string; resuelto_en: string | null }>) ?? [];
+
+  let racha = 0;
+  for (let i = 0; i < diasRacha; i++) {
+    const dia = new Date();
+    dia.setDate(dia.getDate() - i);
+    dia.setHours(0, 0, 0, 0);
+
+    const limiteVencido = new Date(dia);
+    limiteVencido.setDate(limiteVencido.getDate() - umbralDias);
+
+    const tuvoVencido = filas.some((f) => {
+      const detectado = new Date(f.detectado_en).getTime();
+      const resuelto = f.resuelto_en ? new Date(f.resuelto_en).getTime() : null;
+      return detectado <= limiteVencido.getTime() && (resuelto === null || resuelto > dia.getTime());
+    });
+
+    if (tuvoVencido) break;
+    racha++;
+  }
+  return racha;
+}
+
 export interface AccionPrioritaria {
   tipo: "tarea_vencida" | "negocio_estancado";
   hubspot_id: string;

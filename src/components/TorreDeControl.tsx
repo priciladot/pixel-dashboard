@@ -5,8 +5,8 @@ import {
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
-  proyeccionPipeline,
-  type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday,
+  proyeccionPipeline, pendientesLompiAbiertos, rachaLompiWhatsapp,
+  type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type PendienteLompi,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
   type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
@@ -69,6 +69,7 @@ export async function TorreDeControl({
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
     actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
     coachAcciones, disciplina, proyeccionPipelineData, estancados10,
+    pendientesLompi, rachaLompiWa,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
@@ -95,6 +96,8 @@ export async function TorreDeControl({
     vendedorId ? disciplinaComercial(periodoId, vendedorId) : Promise.resolve(null as TDisciplinaComercial | null),
     vendedorId ? proyeccionPipeline(periodoId, vendedorId) : Promise.resolve(null as ProyeccionPipeline | null),
     dealsEstancados(vendedorId, 10),
+    vendedorId ? pendientesLompiAbiertos(vendedorId) : Promise.resolve([] as PendienteLompi[]),
+    vendedorId ? rachaLompiWhatsapp(vendedorId) : Promise.resolve(0),
   ]);
 
   const filas = vendedorId ? equipo.filter((f) => f.vendedor_id === vendedorId) : equipo;
@@ -324,6 +327,7 @@ export async function TorreDeControl({
           descripcion={`Negocios abiertos de ${seleccionado.nombre_corto}, agrupados por fecha de cierre estimada en HubSpot.`}
         >
           <ProyeccionPipelineTarjeta proyeccion={proyeccionPipelineData} />
+          <PendientesLompiTarjeta pendientes={pendientesLompi} racha={rachaLompiWa} />
         </Seccion>
       )}
 
@@ -353,6 +357,16 @@ export async function TorreDeControl({
       >
         <NegociosEstancados filas={estancados} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
       </Seccion>
+
+      {/* 🚨 Pendientes de Lompi que llevan 3+ días sin atender ---------------- */}
+      {seleccionado && (
+        <Seccion
+          titulo="🚨 Pendientes de Lompi — 3+ días sin atender"
+          descripcion={`Pendientes que Lompi detectó para ${seleccionado.nombre_corto} (ej. WhatsApp sin responder) y que llevan 3 días o más abiertos.`}
+        >
+          <PendientesLompiVencidos pendientes={pendientesLompi} />
+        </Seccion>
+      )}
 
       {/* Auditoría de higiene: HubSpot vs. Monday ---------------------------- */}
       <Seccion
@@ -559,6 +573,80 @@ function EmbudoEtapas({ filas }: { filas: Array<{ etapa_actual: string }> }) {
         );
       })}
     </ul>
+  );
+}
+
+const ETIQUETA_TIPO_PENDIENTE: Record<string, string> = {
+  whatsapp: "💬 WhatsApp",
+};
+
+/** Racha + lista de TODOS los pendientes de Lompi abiertos (dentro de Proyección de Cierres). */
+function PendientesLompiTarjeta({ pendientes, racha }: { pendientes: PendienteLompi[]; racha: number }) {
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-[13px] font-semibold text-ink">🔔 Pendientes de Lompi</h3>
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+            racha >= 7 ? "bg-[#0ca30c1a] text-[#0ca30c]" : "bg-surface-sunk text-ink-soft"
+          }`}
+        >
+          🔥 {racha} {racha === 1 ? "día" : "días"} al día con WhatsApp
+        </span>
+      </div>
+      {pendientes.length === 0 ? (
+        <p className="text-[12px] text-ink-soft">Sin pendientes abiertos de Lompi.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {pendientes.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 text-[12px]">
+              <span className="text-ink-soft">
+                {ETIQUETA_TIPO_PENDIENTE[p.tipo] ?? p.tipo} — {p.descripcion ?? "Sin descripción"}
+              </span>
+              <span className={p.dias_sin_atender >= 3 ? "font-medium text-[#c0392b]" : "text-ink-muted"}>
+                {p.dias_sin_atender === 0 ? "Hoy" : `${p.dias_sin_atender}d sin atender`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Solo los pendientes de Lompi con 3+ días sin atender -- se listan aparte en Focos rojos. */
+function PendientesLompiVencidos({ pendientes }: { pendientes: PendienteLompi[] }) {
+  const vencidos = pendientes.filter((p) => p.dias_sin_atender >= 3);
+  if (vencidos.length === 0) {
+    return (
+      <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
+        Ningún pendiente de Lompi lleva 3+ días sin atender.
+      </Card>
+    );
+  }
+  return (
+    <Card className="overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+              <th className="px-4 py-2.5 font-medium">Tipo</th>
+              <th className="px-4 py-2.5 font-medium">Descripción</th>
+              <th className="px-4 py-2.5 font-medium">Sin atender</th>
+            </tr>
+          </thead>
+          <tbody>
+            {vencidos.map((p) => (
+              <tr key={p.id} className="border-b border-line/70 last:border-0">
+                <td className="px-4 py-2.5 text-ink-soft">{ETIQUETA_TIPO_PENDIENTE[p.tipo] ?? p.tipo}</td>
+                <td className="px-4 py-2.5 text-ink">{p.descripcion ?? "—"}</td>
+                <td className="px-4 py-2.5 font-medium text-[#c0392b]">{p.dias_sin_atender} días</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
