@@ -10,7 +10,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  agregarPorVendedor, normalizar, normalizarTelefono, sanearLote,
+  agregarPorVendedor, agregarPorVendedorCalendario, normalizar, normalizarTelefono, sanearLote,
   type DealCrudo, type Diccionarios, type DealSaneado,
 } from "./sanitizar";
 import { resolverVendedor, type CierreCrudo } from "./monday";
@@ -111,7 +111,7 @@ export async function ingestarDeals(
     if (!opciones.simulacion) {
       await escribirDeals(db, deals, ingestaId);
       await escribirContactos(db, deals, ingestaId);
-      await recalcularKpis(db, deals, ingestaId, opciones.periodoId);
+      await recalcularKpis(db, deals, ingestaId, dic, opciones.periodoId);
     }
 
     const porBandera: Record<string, number> = {};
@@ -226,17 +226,25 @@ async function escribirContactos(db: SupabaseClient, deals: DealSaneado[], inges
 }
 
 /**
- * Actualiza únicamente los campos derivables de HubSpot. Las cifras de venta
- * NO se tocan: el semáforo comercial sigue siendo la fuente autoritativa para
- * el dinero, y HubSpot solo aporta embudo, ticket y ciclo.
+ * Actualiza los campos derivables de HubSpot para las DOS ventanas.
+ *
+ * kpi_4_semanas: las cifras de venta NO se tocan si ya hay una fila -- el
+ * semáforo comercial sigue siendo la fuente autoritativa para el dinero,
+ * HubSpot solo aporta embudo, ticket y ciclo (y solo pone la venta cuando
+ * no hay fila previa del semáforo, marcada "parcial").
+ *
+ * calendario: no existe un semáforo manual con corte de mes calendario
+ * real -- esta ventana ES el cálculo derivado de HubSpot (negocios
+ * ganados con fecha de cierre dentro de periodos.cal_inicio/cal_fin), así
+ * que siempre se sobrescribe con lo último que diga HubSpot.
  */
 async function recalcularKpis(
-  db: SupabaseClient, deals: DealSaneado[], ingestaId: number, periodoId?: string,
+  db: SupabaseClient, deals: DealSaneado[], ingestaId: number, dic: Diccionarios, periodoId?: string,
 ) {
-  const agregados = agregarPorVendedor(deals)
+  const agregadosKpi = agregarPorVendedor(deals)
     .filter((a) => !periodoId || a.periodo_id === periodoId);
 
-  for (const a of agregados) {
+  for (const a of agregadosKpi) {
     const { data: existente } = await db
       .from("kpi_mensual")
       .select("id, venta_total_iva, fuente, notas")
@@ -270,6 +278,27 @@ async function recalcularKpis(
         notas: "Venta derivada de HubSpot (sin IVA × 1.16). Sustituir por la cifra del semáforo comercial.",
       });
     }
+  }
+
+  const agregadosCalendario = agregarPorVendedorCalendario(deals, dic)
+    .filter((a) => !periodoId || a.periodo_id === periodoId);
+
+  for (const a of agregadosCalendario) {
+    await db.from("kpi_mensual").upsert({
+      vendedor_id: a.vendedor_id,
+      periodo_id: a.periodo_id,
+      ventana: "calendario",
+      venta_total_iva: a.ganado_con_iva,
+      deals_creados: a.deals_creados,
+      deals_ganados: a.deals_ganados,
+      deals_perdidos: a.deals_perdidos,
+      ticket_promedio_sin_iva: a.ticket_promedio_sin_iva,
+      ciclo_cierre_dias: a.ciclo_cierre_dias,
+      ingesta_id: ingestaId,
+      fuente: "hubspot_api",
+      calidad: "ok",
+      notas: "Venta acumulada del mes calendario -- negocios ganados en HubSpot con fecha de cierre dentro del mes, sin IVA × 1.16.",
+    }, { onConflict: "vendedor_id,periodo_id,ventana" });
   }
 }
 

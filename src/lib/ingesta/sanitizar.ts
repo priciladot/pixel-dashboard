@@ -324,17 +324,37 @@ export interface AgregadoVendedor {
 }
 
 export function agregarPorVendedor(deals: DealSaneado[]): AgregadoVendedor[] {
+  return agregarPorVendedorConResolver(deals, (d) => d.periodo_id);
+}
+
+/**
+ * Igual que agregarPorVendedor(), pero re-calcula a qué periodo cae cada
+ * negocio usando el MES CALENDARIO real (periodos.cal_inicio/cal_fin) en
+ * vez de d.periodo_id -- que siempre quedó asignado contra la ventana de
+ * 4 semanas de KPI, la única que usa la ingesta automática. Así "Ventana:
+ * Calendario" muestra cuánto se ha vendido en el mes real, no un hueco
+ * vacío.
+ */
+export function agregarPorVendedorCalendario(deals: DealSaneado[], dic: Diccionarios): AgregadoVendedor[] {
+  return agregarPorVendedorConResolver(deals, (d) => periodoDe(d.fecha_cierre ?? d.fecha_creacion, dic, "calendario"));
+}
+
+function agregarPorVendedorConResolver(
+  deals: DealSaneado[],
+  periodoIdDe: (d: DealSaneado) => string | null,
+): AgregadoVendedor[] {
   const mapa = new Map<string, AgregadoVendedor & { _ciclos: number[]; _montos: number[] }>();
 
   for (const d of deals) {
     if (d.calidad === "por_revisar") continue;
-    if (!d.vendedor_id || !d.periodo_id) continue;
+    const periodoId = periodoIdDe(d);
+    if (!d.vendedor_id || !periodoId) continue;
 
-    const clave = `${d.vendedor_id}|${d.periodo_id}`;
+    const clave = `${d.vendedor_id}|${periodoId}`;
     let a = mapa.get(clave);
     if (!a) {
       a = {
-        vendedor_id: d.vendedor_id, periodo_id: d.periodo_id,
+        vendedor_id: d.vendedor_id, periodo_id: periodoId,
         deals_creados: 0, deals_ganados: 0, deals_perdidos: 0,
         ganado_sin_iva: 0, ganado_con_iva: 0,
         ticket_promedio_sin_iva: null, ciclo_cierre_dias: null,
