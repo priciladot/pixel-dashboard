@@ -167,6 +167,7 @@ export async function TorreDeControl({
               periodos={lista}
               vendedores={mostrarFiltroVendedor ? personas.filter((p) => p.rol === "vendedor") : []}
               mostrarVistaTiempo
+              periodoActivoId={periodoId}
             />
           </Suspense>
         </div>

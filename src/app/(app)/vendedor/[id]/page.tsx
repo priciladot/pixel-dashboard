@@ -70,7 +70,7 @@ export default async function VistaVendedor({
           )}
         </div>
         <Suspense fallback={null}>
-          <Filtros periodos={lista} mostrarVistaTiempo />
+          <Filtros periodos={lista} mostrarVistaTiempo periodoActivoId={periodoId} />
         </Suspense>
       </div>
 

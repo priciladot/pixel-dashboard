@@ -3,10 +3,21 @@
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import type { Perfil, Periodo } from "@/lib/types";
 
-/** Filtros en una sola fila arriba de los tableros. */
+/**
+ * Filtros en una sola fila arriba de los tableros.
+ *
+ * `periodoActivoId` es el periodo que la pantalla YA está usando cuando la
+ * URL no trae `?periodo=` (el mes que contiene hoy, no el primero de la
+ * lista -- ver periodoActivoDe() en queries.ts). Sin este prop, el <select>
+ * queda con un `value` que no matchea ningún <option> (params.get regresa
+ * null) y el navegador muestra la primera opción por default -- que es el
+ * mes MÁS FUTURO configurado, no el que la página realmente está mostrando.
+ * Eso hacía ver "Diciembre 2026" en el selector mientras el resto de la
+ * pantalla ya mostraba, correctamente, los datos reales de septiembre.
+ */
 export function Filtros({
-  periodos, vendedores = [], mostrarVentana = true, mostrarVistaTiempo = false,
-}: { periodos: Periodo[]; vendedores?: Perfil[]; mostrarVentana?: boolean; mostrarVistaTiempo?: boolean }) {
+  periodos, vendedores = [], mostrarVentana = true, mostrarVistaTiempo = false, periodoActivoId,
+}: { periodos: Periodo[]; vendedores?: Perfil[]; mostrarVentana?: boolean; mostrarVistaTiempo?: boolean; periodoActivoId?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -24,7 +35,7 @@ export function Filtros({
     <div className="flex flex-wrap items-center gap-2">
       <label className="flex items-center gap-1.5 text-[12px] text-ink-soft">
         Mes
-        <select className={clase} value={params.get("periodo") ?? ""} onChange={(e) => set("periodo", e.target.value)}>
+        <select className={clase} value={params.get("periodo") ?? periodoActivoId ?? ""} onChange={(e) => set("periodo", e.target.value)}>
           {periodos.map((p) => (
             <option key={p.id} value={p.id}>{p.etiqueta}</option>
           ))}
