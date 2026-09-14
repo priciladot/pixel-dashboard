@@ -2,8 +2,9 @@ import { Suspense } from "react";
 import {
   vendedores, periodos, periodoActivoDe,
   kpisMarketingSemanaActual, diagnosticoMarketingCoach, disciplinaMarketing, tareasMarketing, historialMarketingMensual,
+  metricasCanalDelVendedor,
   type KpiMarketing, type AccionMarketingCoach, type DisciplinaMarketing, type RetoSemanaMarketing, type TareaMarketing,
-  type ResumenMarketingMes,
+  type ResumenMarketingMes, type MetricaCanal,
 } from "@/lib/queries";
 import type { EstatusReto } from "@/lib/queries";
 import { Card, Seccion, Vacio } from "@/components/ui";
@@ -102,12 +103,13 @@ export async function MarketingTorreDeControl({
   const indicePeriodo = lista.findIndex((p) => p.id === periodoId);
   const periodosHistorial = lista.slice(indicePeriodo, indicePeriodo + 3).map((p) => p.id);
 
-  const [semanaActual, coach, disciplina, tareas, historial] = await Promise.all([
+  const [semanaActual, coach, disciplina, tareas, historial, metricasCanal] = await Promise.all([
     kpisMarketingSemanaActual(vendedorIdForzado, periodoId),
     diagnosticoMarketingCoach(vendedorIdForzado, periodoId),
     disciplinaMarketing(vendedorIdForzado, periodoId),
     tareasMarketing(vendedorIdForzado),
     historialMarketingMensual(vendedorIdForzado, periodosHistorial),
+    metricasCanalDelVendedor(vendedorIdForzado),
   ]);
 
   return (
@@ -152,6 +154,12 @@ export async function MarketingTorreDeControl({
       <Seccion titulo="📅 Histórico (últimos 3 meses)" descripcion="Total de KPIs verde/amarillo/rojo de cada mes, sin tener que cambiar el selector uno por uno.">
         <HistorialMarketingTabla historial={historial} />
       </Seccion>
+
+      {metricasCanal.length > 0 && (
+        <Seccion titulo="📡 Métricas por canal" descripcion="Alcance/Interacción/CTR de los tableros de canal con datos por persona -- última semana capturada.">
+          <MetricasCanalTabla metricas={metricasCanal} />
+        </Seccion>
+      )}
     </>
   );
 }
@@ -244,6 +252,38 @@ function HistorialMarketingTabla({ historial }: { historial: ResumenMarketingMes
                 </td>
                 <td className="px-4 py-2.5">
                   <ChipsKpiPorColor detalle={m.detalleKpis} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/** Métricas por canal (marketing_metricas_canal) -- sin meta/semáforo, son números crudos por semana. */
+function MetricasCanalTabla({ metricas }: { metricas: MetricaCanal[] }) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[480px] border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+              <th className="px-4 py-2.5 font-medium">Tablero</th>
+              <th className="px-4 py-2.5 font-medium">Métrica</th>
+              <th className="px-4 py-2.5 font-medium">Semana</th>
+              <th className="px-4 py-2.5 font-medium">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {metricas.map((m) => (
+              <tr key={`${m.tablero}-${m.nombreMetrica}`} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
+                <td className="px-4 py-2.5 text-ink-soft">{m.tablero}</td>
+                <td className="px-4 py-2.5 text-ink">{m.nombreMetrica}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{m.semana ?? "—"}</td>
+                <td className="px-4 py-2.5 tabular text-ink-soft">
+                  {m.valor == null ? "—" : m.nombreMetrica === "CTR" ? `${(m.valor * 100).toFixed(2)}%` : m.valor}
                 </td>
               </tr>
             ))}

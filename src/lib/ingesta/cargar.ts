@@ -15,6 +15,7 @@ import {
 } from "./sanitizar";
 import { resolverVendedor, type CierreCrudo } from "./monday";
 import { resolverResponsables as resolverResponsablesMkt, type KpiMarketingCrudo } from "./monday-marketing";
+import { resolverResponsablesCanal, type MetricaCanalCrudo } from "./monday-canales";
 import { buscarContactosPorId, type CambioEtapa, type EngagementCrudo, type LeadCrudo, type TipoEngagement } from "./hubspot-analitica";
 
 export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionarios> {
@@ -704,6 +705,73 @@ export async function ingestarPendientesLompi(
     }).eq("id", ingestaId);
 
     return { ingestaId, abiertos: resueltos.length, resueltos: yaAtendidos.length, sinAsignar };
+  } catch (e) {
+    await db.from("ingestas").update({
+      estatus: "error",
+      terminado_en: new Date().toISOString(),
+      error: e instanceof Error ? e.message : String(e),
+    }).eq("id", ingestaId);
+    throw e;
+  }
+}
+
+/**
+ * Métricas por canal con columna de persona real (Individual Engagement,
+ * CTR Individual) -- calcado de ingestarKpisMarketing() pero sin
+ * meta/semáforo, son números crudos por semana. Siempre sobreescribe
+ * (upsert), no hay "fuente autoritativa" que proteger aquí.
+ */
+export async function ingestarMetricasCanal(
+  db: SupabaseClient,
+  crudos: MetricaCanalCrudo[],
+  opciones: { tipo: "monday_mkt_api" | "monday_mkt_cron" },
+): Promise<{ ingestaId: number; filasOk: number; sinAsignar: number }> {
+  const { data: ingesta, error: errIngesta } = await db
+    .from("ingestas")
+    .insert({ tipo: opciones.tipo, filas_leidas: crudos.length })
+    .select("id")
+    .single();
+  if (errIngesta) throw new Error(`No se pudo abrir la ingesta: ${errIngesta.message}`);
+  const ingestaId = ingesta.id as number;
+
+  try {
+    const dic = await cargarDiccionarios(db);
+    let sinAsignar = 0;
+
+    const filas = crudos.map((c) => {
+      const responsableIds = resolverResponsablesCanal(c.responsable_monday_ids, dic.porMondayId);
+      if (responsableIds.length === 0) sinAsignar += 1;
+
+      return {
+        tablero: c.tablero,
+        elemento_id: c.elemento_id,
+        nombre_metrica: c.nombre_metrica,
+        valor: c.valor,
+        responsable_ids: responsableIds,
+        responsables_raw: c.responsables_raw,
+        semana: c.semana,
+        ingesta_id: ingestaId,
+        raw: c.raw,
+        actualizado_en: new Date().toISOString(),
+      };
+    });
+
+    for (let i = 0; i < filas.length; i += 500) {
+      const { error } = await db
+        .from("marketing_metricas_canal")
+        .upsert(filas.slice(i, i + 500), { onConflict: "tablero,elemento_id" });
+      if (error) throw new Error(`Error al escribir métricas de canal: ${error.message}`);
+    }
+
+    await db.from("ingestas").update({
+      estatus: sinAsignar > 0 ? "completada_con_avisos" : "completada",
+      terminado_en: new Date().toISOString(),
+      filas_ok: filas.length - sinAsignar,
+      filas_sanitizadas: sinAsignar,
+      resumen: { sin_asignar: sinAsignar },
+    }).eq("id", ingestaId);
+
+    return { ingestaId, filasOk: filas.length - sinAsignar, sinAsignar };
   } catch (e) {
     await db.from("ingestas").update({
       estatus: "error",

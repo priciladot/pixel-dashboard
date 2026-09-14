@@ -2201,6 +2201,54 @@ export async function historialMarketingMensual(vendedorId: string, periodoIds: 
   return resultados.filter((r): r is ResumenMarketingMes => r !== null);
 }
 
+export interface MetricaCanal {
+  tablero: string;
+  nombreMetrica: string;
+  semana: string | null;
+  valor: number | null;
+}
+
+const ETIQUETA_TABLERO: Record<string, string> = {
+  individual_engagement: "Engagement individual",
+  ctr_individual: "CTR individual",
+};
+
+/**
+ * Métricas por canal con columna de persona real (marketing_metricas_canal
+ * -- ver monday-canales.ts). Se toma la semana más alta presente por cada
+ * (tablero, métrica), mismo criterio de "vigente" que kpisMarketingSemanaActual().
+ */
+export async function metricasCanalDelVendedor(vendedorId: string): Promise<MetricaCanal[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("marketing_metricas_canal")
+    .select("tablero, nombre_metrica, semana, valor")
+    .contains("responsable_ids", [vendedorId]);
+  const filas = (data as Array<{ tablero: string; nombre_metrica: string; semana: string | null; valor: number | null }>) ?? [];
+
+  const porTableroYMetrica = new Map<string, typeof filas>();
+  for (const f of filas) {
+    const clave = `${f.tablero}|${f.nombre_metrica}`;
+    const grupo = porTableroYMetrica.get(clave) ?? [];
+    grupo.push(f);
+    porTableroYMetrica.set(clave, grupo);
+  }
+
+  return [...porTableroYMetrica.values()].map((grupo) => {
+    const masReciente = grupo.reduce((mejor, f) => {
+      const nMejor = numeroDeSemana(mejor.semana);
+      const nActual = numeroDeSemana(f.semana);
+      return !Number.isNaN(nActual) && (Number.isNaN(nMejor) || nActual > nMejor) ? f : mejor;
+    });
+    return {
+      tablero: ETIQUETA_TABLERO[masReciente.tablero] ?? masReciente.tablero,
+      nombreMetrica: masReciente.nombre_metrica,
+      semana: masReciente.semana,
+      valor: masReciente.valor,
+    };
+  });
+}
+
 export interface TareaMarketing {
   id: number;
   vendedor_id: string;

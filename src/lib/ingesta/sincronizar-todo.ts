@@ -22,7 +22,8 @@ import {
 import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads } from "./hubspot-analitica";
 import { listarCierres } from "./monday";
 import { listarKpisMarketing } from "./monday-marketing";
-import { ingestarAnaliticaHubspot, ingestarCierresMonday, ingestarDeals, ingestarKpisMarketing } from "./cargar";
+import { listarMetricasCanal } from "./monday-canales";
+import { ingestarAnaliticaHubspot, ingestarCierresMonday, ingestarDeals, ingestarKpisMarketing, ingestarMetricasCanal } from "./cargar";
 
 export interface SeccionResultado {
   ok: boolean;
@@ -35,6 +36,7 @@ export interface ResultadoSincronizacionTodo {
   analitica: SeccionResultado;
   monday: SeccionResultado;
   marketing: SeccionResultado;
+  canalesMarketing: SeccionResultado;
 }
 
 function aResultado(r: PromiseSettledResult<Record<string, unknown>>): SeccionResultado {
@@ -62,7 +64,7 @@ export async function sincronizarTodo(
   const tipoMonday = origen === "manual" ? "monday_api" : "monday_cron";
   const tipoMarketing = origen === "manual" ? "monday_mkt_api" : "monday_mkt_cron";
 
-  const [deals, analitica, monday, marketing] = await Promise.allSettled([
+  const [deals, analitica, monday, marketing, canalesMarketing] = await Promise.allSettled([
     (async () => {
       const owners = await listarOwners();
       const [cerrados, creados, abiertos] = await Promise.all([
@@ -103,7 +105,15 @@ export async function sincronizarTodo(
       const r = await ingestarKpisMarketing(db, crudos, { tipo: tipoMarketing });
       return { ingestaId: r.ingestaId, elementosLeidos: crudos.length, filasOk: r.filasOk, sinAsignar: r.sinAsignar };
     })(),
+    (async () => {
+      const crudos = await listarMetricasCanal();
+      const r = await ingestarMetricasCanal(db, crudos, { tipo: tipoMarketing });
+      return { ingestaId: r.ingestaId, elementosLeidos: crudos.length, filasOk: r.filasOk, sinAsignar: r.sinAsignar };
+    })(),
   ]);
 
-  return { deals: aResultado(deals), analitica: aResultado(analitica), monday: aResultado(monday), marketing: aResultado(marketing) };
+  return {
+    deals: aResultado(deals), analitica: aResultado(analitica), monday: aResultado(monday),
+    marketing: aResultado(marketing), canalesMarketing: aResultado(canalesMarketing),
+  };
 }
