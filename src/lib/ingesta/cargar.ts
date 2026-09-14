@@ -263,7 +263,15 @@ async function recalcularKpis(
     };
 
     if (existente) {
-      await db.from("kpi_mensual").update(campos).eq("id", existente.id);
+      // Si la fila existente YA es del semáforo comercial, esa cifra manda y
+      // no se toca. Pero si sigue siendo nuestra propia aproximación de
+      // HubSpot (fuente !== "semaforo"), hay que refrescar venta_total_iva
+      // en cada corrida -- si no, se queda congelada en lo que sumaba la
+      // PRIMERA vez que se creó la fila, aunque después cierren más negocios.
+      const actualizacion = existente.fuente === "semaforo"
+        ? campos
+        : { ...campos, venta_total_iva: a.ganado_con_iva };
+      await db.from("kpi_mensual").update(actualizacion).eq("id", existente.id);
     } else {
       // Sin fila previa del semáforo: se crea con la venta derivada de HubSpot
       // (convertida a CON IVA) y queda marcada como parcial.
