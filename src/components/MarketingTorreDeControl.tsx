@@ -1,8 +1,9 @@
 import { Suspense } from "react";
 import {
   vendedores, periodos, periodoActivoDe,
-  kpisMarketingSemanaActual, diagnosticoMarketingCoach, disciplinaMarketing, tareasMarketing,
+  kpisMarketingSemanaActual, diagnosticoMarketingCoach, disciplinaMarketing, tareasMarketing, historialMarketingMensual,
   type KpiMarketing, type AccionMarketingCoach, type DisciplinaMarketing, type RetoSemanaMarketing, type TareaMarketing,
+  type ResumenMarketingMes,
 } from "@/lib/queries";
 import type { EstatusReto } from "@/lib/queries";
 import { Card, Seccion, Vacio } from "@/components/ui";
@@ -98,11 +99,15 @@ export async function MarketingTorreDeControl({
   }
 
   const persona = personas.find((p) => p.id === vendedorIdForzado);
-  const [semanaActual, coach, disciplina, tareas] = await Promise.all([
+  const indicePeriodo = lista.findIndex((p) => p.id === periodoId);
+  const periodosHistorial = lista.slice(indicePeriodo, indicePeriodo + 3).map((p) => p.id);
+
+  const [semanaActual, coach, disciplina, tareas, historial] = await Promise.all([
     kpisMarketingSemanaActual(vendedorIdForzado, periodoId),
     diagnosticoMarketingCoach(vendedorIdForzado, periodoId),
     disciplinaMarketing(vendedorIdForzado, periodoId),
     tareasMarketing(vendedorIdForzado),
+    historialMarketingMensual(vendedorIdForzado, periodosHistorial),
   ]);
 
   return (
@@ -143,6 +148,10 @@ export async function MarketingTorreDeControl({
           <DisciplinaMarketingTabla disciplina={disciplina} />
         </Seccion>
       )}
+
+      <Seccion titulo="📅 Histórico (últimos 3 meses)" descripcion="Total de KPIs verde/amarillo/rojo de cada mes, sin tener que cambiar el selector uno por uno.">
+        <HistorialMarketingTabla historial={historial} />
+      </Seccion>
     </>
   );
 }
@@ -201,6 +210,43 @@ function TareasMarketingLista({ tareas }: { tareas: TareaMarketing[] }) {
         );
       })}
     </ul>
+  );
+}
+
+/** Histórico combinado de varios meses (historialMarketingMensual) -- un renglón por mes, sin cambiar el selector de periodo. */
+function HistorialMarketingTabla({ historial }: { historial: ResumenMarketingMes[] }) {
+  if (historial.length === 0) {
+    return <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">Sin histórico disponible todavía.</Card>;
+  }
+  return (
+    <Card className="overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+              <th className="px-4 py-2.5 font-medium">Mes</th>
+              <th className="px-4 py-2.5 font-medium">KPIs capturados</th>
+              <th className="px-4 py-2.5 font-medium">Verde / Amarillo / Rojo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {historial.map((m) => (
+              <tr key={m.periodoId} className="border-b border-line/70 transition-colors last:border-0 hover:bg-surface-sunk">
+                <td className="px-4 py-2.5 text-ink">{m.etiqueta}</td>
+                <td className="px-4 py-2.5 tabular text-ink-soft">
+                  {m.totalKpis === 0 ? <span className="text-ink-muted">Sin datos</span> : m.totalKpis}
+                </td>
+                <td className="px-4 py-2.5 tabular text-ink-soft">
+                  <span style={{ color: "#0ca30c" }}>{m.verdes}</span>{" / "}
+                  <span style={{ color: "#8a6100" }}>{m.amarillos}</span>{" / "}
+                  <span style={{ color: "#d03b3b" }}>{m.rojos}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
@@ -316,13 +362,14 @@ function DisciplinaMarketingTabla({ disciplina }: { disciplina: DisciplinaMarket
       </div>
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] border-collapse text-[13px]">
+          <table className="w-full min-w-[780px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Semana</th>
                 <th className="px-4 py-2.5 font-medium">KPIs</th>
                 <th className="px-4 py-2.5 font-medium">Verde / Amarillo / Rojo</th>
                 <th className="px-4 py-2.5 font-medium">Estatus</th>
+                <th className="px-4 py-2.5 font-medium">KPIs en riesgo</th>
               </tr>
             </thead>
             <tbody>
@@ -338,6 +385,27 @@ function DisciplinaMarketingTabla({ disciplina }: { disciplina: DisciplinaMarket
                   <td className="px-4 py-2.5 tabular text-ink-soft">{s.totalKpis}</td>
                   <td className="px-4 py-2.5 tabular text-ink-soft">{s.cumplidos} / {s.amarillos} / {s.rojos}</td>
                   <td className="px-4 py-2.5"><EstatusBadgeMkt estado={s.estatus} /></td>
+                  <td className="px-4 py-2.5">
+                    {s.enRiesgo.length === 0 ? (
+                      <span className="text-ink-muted">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {s.enRiesgo.map((k, i) => (
+                          <span
+                            key={`${k.nombre_kpi}-${i}`}
+                            className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            style={
+                              k.semaforo === "Rojo"
+                                ? { color: "#d03b3b", backgroundColor: "#fdecec" }
+                                : { color: "#8a6100", backgroundColor: "#fdf4e0" }
+                            }
+                          >
+                            {k.nombre_kpi}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

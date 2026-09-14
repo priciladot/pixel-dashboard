@@ -2025,6 +2025,7 @@ export interface RetoSemanaMarketing {
   cumplidos: number;
   amarillos: number;
   rojos: number;
+  enRiesgo: Array<{ nombre_kpi: string; semaforo: "Amarillo" | "Rojo" }>;
   estatus: EstatusReto;
 }
 
@@ -2054,22 +2055,26 @@ export async function disciplinaMarketing(vendedorId: string, periodoId: string)
     const base = { semana: s.semana, etiqueta: `S${s.semana}`, inicio: s.inicio, fin: s.fin, esSemanaActual };
 
     if (hoy < s.inicio) {
-      return { ...base, totalKpis: 0, cumplidos: 0, amarillos: 0, rojos: 0, estatus: "pendiente" };
+      return { ...base, totalKpis: 0, cumplidos: 0, amarillos: 0, rojos: 0, enRiesgo: [], estatus: "pendiente" };
     }
 
     const { data } = await supabase
       .from("marketing_kpis")
-      .select("semaforo")
+      .select("nombre_kpi, semaforo")
       .contains("responsable_ids", [vendedorId])
       .gte("cronograma_inicio", s.inicio)
       .lte("cronograma_inicio", s.fin);
-    const kpis = (data as Array<{ semaforo: string | null }>) ?? [];
+    const kpis = (data as Array<{ nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" | null }>) ?? [];
     const cumplidos = kpis.filter((k) => k.semaforo === "Verde").length;
     const amarillos = kpis.filter((k) => k.semaforo === "Amarillo").length;
     const rojos = kpis.filter((k) => k.semaforo === "Rojo").length;
+    const enRiesgo = kpis
+      .filter((k): k is { nombre_kpi: string; semaforo: "Amarillo" | "Rojo" } => k.semaforo === "Amarillo" || k.semaforo === "Rojo")
+      .sort((a) => (a.semaforo === "Rojo" ? -1 : 1))
+      .map((k) => ({ nombre_kpi: k.nombre_kpi, semaforo: k.semaforo }));
     const estatus: EstatusReto = kpis.length === 0 ? "sin_dato" : rojos > 0 ? "no_alcanzado" : amarillos > 0 ? "en_progreso" : "cumplido";
 
-    return { ...base, totalKpis: kpis.length, cumplidos, amarillos, rojos, estatus };
+    return { ...base, totalKpis: kpis.length, cumplidos, amarillos, rojos, enRiesgo, estatus };
   }));
 
   const evaluables = filas.filter((f) => f.fin <= hoy);
@@ -2079,6 +2084,47 @@ export async function disciplinaMarketing(vendedorId: string, periodoId: string)
   }
 
   return { semanas: filas, rachaSemanas };
+}
+
+export interface ResumenMarketingMes {
+  periodoId: string;
+  etiqueta: string;
+  verdes: number;
+  amarillos: number;
+  rojos: number;
+  totalKpis: number;
+}
+
+/** Resumen del mes completo (verde/amarillo/rojo) para varios periodos a la vez -- histórico combinado, sin tener que cambiar el selector uno por uno. */
+export async function historialMarketingMensual(vendedorId: string, periodoIds: string[]): Promise<ResumenMarketingMes[]> {
+  const supabase = await createClient();
+  const { data: periodosData } = await supabase
+    .from("periodos").select("id, etiqueta, cal_inicio, cal_fin").in("id", periodoIds);
+  const periodosPorId = new Map((periodosData ?? []).map((p) => [p.id, p]));
+
+  const resultados = await Promise.all(periodoIds.map(async (id): Promise<ResumenMarketingMes | null> => {
+    const p = periodosPorId.get(id);
+    if (!p) return null;
+
+    const { data } = await supabase
+      .from("marketing_kpis")
+      .select("semaforo")
+      .contains("responsable_ids", [vendedorId])
+      .gte("cronograma_inicio", p.cal_inicio)
+      .lte("cronograma_inicio", p.cal_fin);
+    const kpis = (data as Array<{ semaforo: string | null }>) ?? [];
+
+    return {
+      periodoId: id,
+      etiqueta: p.etiqueta,
+      verdes: kpis.filter((k) => k.semaforo === "Verde").length,
+      amarillos: kpis.filter((k) => k.semaforo === "Amarillo").length,
+      rojos: kpis.filter((k) => k.semaforo === "Rojo").length,
+      totalKpis: kpis.length,
+    };
+  }));
+
+  return resultados.filter((r): r is ResumenMarketingMes => r !== null);
 }
 
 export interface TareaMarketing {
