@@ -26,6 +26,10 @@ export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionari
     db.from("catalogo_perdida").select("categoria").eq("activo", true),
   ]);
 
+  if (perfiles.error) throw new Error(`No se pudo leer profiles: ${perfiles.error.message}`);
+  if (alias.error) throw new Error(`No se pudo leer profile_alias: ${alias.error.message}`);
+  if (mapaOwners.error) throw new Error(`No se pudo leer hubspot_owner_map: ${mapaOwners.error.message}`);
+
   const porOwnerId = new Map<string, string>();
   const porAlias = new Map<string, string>();
   const porMondayId = new Map<string, string>();
