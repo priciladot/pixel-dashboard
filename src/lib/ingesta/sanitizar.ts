@@ -83,6 +83,8 @@ export interface Diccionarios {
   porOwnerId: Map<string, string>;
   /** alias normalizado -> profiles.id */
   porAlias: Map<string, string>;
+  /** monday_person_id -> profiles.id (equipo de Marketing) */
+  porMondayId: Map<string, string>;
   /** periodos con sus ventanas de KPI */
   periodos: Array<{ id: string; kpi_inicio: string; kpi_fin: string; cal_inicio: string; cal_fin: string }>;
   /** categorías válidas del catálogo de pérdida */

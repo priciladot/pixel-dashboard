@@ -1,4 +1,4 @@
-export type AppRole = "admin" | "supervisor" | "vendedor";
+export type AppRole = "admin" | "supervisor" | "vendedor" | "marketing" | "marketing_lead";
 export type Ventana = "kpi_4_semanas" | "calendario";
 export type Calidad = "ok" | "parcial" | "por_revisar";
 export type Semaforo = "verde" | "amarillo" | "naranja" | "rojo" | "sin_dato";
@@ -11,6 +11,7 @@ export interface Perfil {
   rol: AppRole;
   puesto: string | null;
   hubspot_owner_id: string | null;
+  monday_person_id: string | null;
   activo: boolean;
   fecha_ingreso: string | null;
   avatar_url: string | null;

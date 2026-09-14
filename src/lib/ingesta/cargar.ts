@@ -14,11 +14,12 @@ import {
   type DealCrudo, type Diccionarios, type DealSaneado,
 } from "./sanitizar";
 import { resolverVendedor, type CierreCrudo } from "./monday";
+import { resolverResponsables as resolverResponsablesMkt, type KpiMarketingCrudo } from "./monday-marketing";
 import { buscarContactosPorId, type CambioEtapa, type EngagementCrudo, type LeadCrudo, type TipoEngagement } from "./hubspot-analitica";
 
 export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionarios> {
   const [perfiles, alias, mapaOwners, periodos, catalogo] = await Promise.all([
-    db.from("profiles").select("id, hubspot_owner_id, nombre_completo, nombre_corto, email"),
+    db.from("profiles").select("id, hubspot_owner_id, monday_person_id, nombre_completo, nombre_corto, email"),
     db.from("profile_alias").select("vendedor_id, alias"),
     db.from("hubspot_owner_map").select("owner_id, vendedor_id, nombre_raw"),
     db.from("periodos").select("id, kpi_inicio, kpi_fin, cal_inicio, cal_fin"),
@@ -27,9 +28,11 @@ export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionari
 
   const porOwnerId = new Map<string, string>();
   const porAlias = new Map<string, string>();
+  const porMondayId = new Map<string, string>();
 
   for (const p of perfiles.data ?? []) {
     if (p.hubspot_owner_id) porOwnerId.set(String(p.hubspot_owner_id), p.id);
+    if (p.monday_person_id) porMondayId.set(String(p.monday_person_id), p.id);
     [p.nombre_completo, p.nombre_corto, p.email].filter(Boolean)
       .forEach((a: string) => porAlias.set(normalizar(a), p.id));
   }
@@ -45,6 +48,7 @@ export async function cargarDiccionarios(db: SupabaseClient): Promise<Diccionari
   return {
     porOwnerId,
     porAlias,
+    porMondayId,
     periodos: periodos.data ?? [],
     categoriasPerdida: (catalogo.data ?? []).map((c) => c.categoria),
   };
@@ -384,6 +388,82 @@ export async function ingestarCierresMonday(
         .from("monday_cierres")
         .upsert(filas.slice(i, i + 500), { onConflict: "elemento_id" });
       if (error) throw new Error(`Error al escribir cierres de Monday: ${error.message}`);
+    }
+
+    await db.from("ingestas").update({
+      estatus: sinAsignar > 0 ? "completada_con_avisos" : "completada",
+      terminado_en: new Date().toISOString(),
+      filas_ok: filas.length - sinAsignar,
+      filas_sanitizadas: sinAsignar,
+      resumen: { sin_asignar: sinAsignar },
+    }).eq("id", ingestaId);
+
+    return { ingestaId, filasOk: filas.length - sinAsignar, sinAsignar };
+  } catch (e) {
+    await db.from("ingestas").update({
+      estatus: "error",
+      terminado_en: new Date().toISOString(),
+      error: e instanceof Error ? e.message : String(e),
+    }).eq("id", ingestaId);
+    throw e;
+  }
+}
+
+/**
+ * Calcado de ingestarCierresMonday() -- misma forma, otra tabla. Resuelve
+ * cada fila a sus responsables reales (uno o más) vía
+ * profiles.monday_person_id, no por nombre: el "Responsables" de Monday
+ * es una columna de personas de verdad, con ids numéricos, no texto libre.
+ */
+export async function ingestarKpisMarketing(
+  db: SupabaseClient,
+  crudos: KpiMarketingCrudo[],
+  opciones: { tipo: "monday_mkt_api" | "monday_mkt_cron" },
+): Promise<{ ingestaId: number; filasOk: number; sinAsignar: number }> {
+  const { data: ingesta, error: errIngesta } = await db
+    .from("ingestas")
+    .insert({ tipo: opciones.tipo, filas_leidas: crudos.length })
+    .select("id")
+    .single();
+  if (errIngesta) throw new Error(`No se pudo abrir la ingesta: ${errIngesta.message}`);
+  const ingestaId = ingesta.id as number;
+
+  try {
+    const dic = await cargarDiccionarios(db);
+    let sinAsignar = 0;
+
+    const filas = crudos.map((c) => {
+      const responsableIds = resolverResponsablesMkt(c.responsable_monday_ids, dic.porMondayId);
+      if (responsableIds.length === 0) sinAsignar += 1;
+
+      return {
+        elemento_id: c.elemento_id,
+        nombre_kpi: c.nombre_kpi,
+        unidad: c.unidad,
+        equipo: c.equipo,
+        responsable_ids: responsableIds,
+        responsables_raw: c.responsables_raw,
+        mes: c.mes,
+        semana: c.semana,
+        cronograma_inicio: c.cronograma_inicio,
+        cronograma_fin: c.cronograma_fin,
+        meta: c.meta,
+        umbral_amarillo: c.umbral_amarillo,
+        umbral_rojo: c.umbral_rojo,
+        resultado: c.resultado,
+        pct_cumplimiento: c.pct_cumplimiento,
+        semaforo: c.semaforo,
+        ingesta_id: ingestaId,
+        raw: c.raw,
+        actualizado_en: new Date().toISOString(),
+      };
+    });
+
+    for (let i = 0; i < filas.length; i += 500) {
+      const { error } = await db
+        .from("marketing_kpis")
+        .upsert(filas.slice(i, i + 500), { onConflict: "elemento_id" });
+      if (error) throw new Error(`Error al escribir KPIs de Marketing: ${error.message}`);
     }
 
     await db.from("ingestas").update({

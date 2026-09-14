@@ -16,7 +16,7 @@ interface SeccionResultado {
 }
 
 type Resultado =
-  | { ok: true; deals: SeccionResultado; analitica: SeccionResultado; monday: SeccionResultado }
+  | { ok: true; deals: SeccionResultado; analitica: SeccionResultado; monday: SeccionResultado; marketing: SeccionResultado }
   | { ok: false; error: string };
 
 /**
@@ -24,8 +24,9 @@ type Resultado =
  * existía en /ingesta. Dispara el mismo corte unificado que el cron
  * automático (sincronizarTodo: Deals + KPIs + contacto_ids/correos,
  * Analítica de HubSpot -- notas, correos, llamadas, tareas, cambios de
- * etapa -- y Cierres de Monday) para cuando se quiera refrescar todo de
- * golpe sin esperar al siguiente corte de las 8:30 AM o 2:00 PM.
+ * etapa --, Cierres de Monday y KPIs de Marketing) para cuando se quiera
+ * refrescar todo de golpe sin esperar al siguiente corte de las 8:30 AM
+ * o 2:00 PM.
  */
 export function BotonSincronizarHubspot({ periodoId, etiqueta }: { periodoId: string; etiqueta: string }) {
   const router = useRouter();
@@ -45,7 +46,7 @@ export function BotonSincronizarHubspot({ periodoId, etiqueta }: { periodoId: st
       if (!res.ok) {
         setResultado({ ok: false, error: data.error ?? "No se pudo sincronizar." });
       } else {
-        setResultado({ ok: true, deals: data.deals, analitica: data.analitica, monday: data.monday });
+        setResultado({ ok: true, deals: data.deals, analitica: data.analitica, monday: data.monday, marketing: data.marketing });
         router.refresh();
       }
     } catch {
@@ -83,6 +84,11 @@ export function BotonSincronizarHubspot({ periodoId, etiqueta }: { periodoId: st
                 Monday: {resultado.monday.ok
                   ? `${resultado.monday.elementosLeidos ?? 0} elementos, ${resultado.monday.filasOk ?? 0} ok`
                   : resultado.monday.error}
+              </p>
+              <p className={resultado.marketing.ok ? "text-ink-muted" : "text-[#d03b3b]"}>
+                Marketing: {resultado.marketing.ok
+                  ? `${resultado.marketing.elementosLeidos ?? 0} KPIs, ${resultado.marketing.filasOk ?? 0} ok`
+                  : resultado.marketing.error}
               </p>
             </>
           ) : (

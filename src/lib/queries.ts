@@ -1770,3 +1770,222 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
 
   return { probabilidadDisponible: probabilidad.size > 0, grupos };
 }
+
+/* ------------------------------------------------------------------ */
+/* Marketing -- KPIs sincronizados de Monday (Dana, Xuan, Santiago,      */
+/* Melissa, Alan), Coach y Disciplina calcados del patrón de ventas.    */
+/* ------------------------------------------------------------------ */
+
+export interface KpiMarketing {
+  elemento_id: string;
+  nombre_kpi: string;
+  unidad: string | null;
+  equipo: string | null;
+  responsable_ids: string[];
+  responsables_raw: string | null;
+  mes: string | null;
+  semana: string | null;
+  cronograma_inicio: string | null;
+  cronograma_fin: string | null;
+  meta: number | null;
+  umbral_amarillo: number | null;
+  umbral_rojo: number | null;
+  resultado: number | null;
+  pct_cumplimiento: number | null;
+  semaforo: "Verde" | "Amarillo" | "Rojo" | null;
+}
+
+/**
+ * KPIs de Marketing de una persona dentro de un periodo (mes calendario).
+ * El match es por la fecha real de `cronograma_inicio` contra
+ * `periodos.cal_inicio/cal_fin` -- no por el texto "Mes" del dropdown de
+ * Monday, que puede no coincidir en ortografía/idioma con la etiqueta del
+ * periodo.
+ */
+export async function kpisMarketingDelPeriodo(vendedorId: string, periodoId: string): Promise<KpiMarketing[]> {
+  const supabase = await createClient();
+  const { data: periodo } = await supabase.from("periodos").select("cal_inicio, cal_fin").eq("id", periodoId).maybeSingle();
+  if (!periodo) return [];
+
+  const { data } = await supabase
+    .from("marketing_kpis")
+    .select("*")
+    .contains("responsable_ids", [vendedorId])
+    .gte("cronograma_inicio", periodo.cal_inicio)
+    .lte("cronograma_inicio", periodo.cal_fin)
+    .order("cronograma_inicio", { ascending: true });
+
+  return (data as KpiMarketing[]) ?? [];
+}
+
+export interface KpiMarketingSemanaActual {
+  semana: number | null;
+  inicio: string | null;
+  fin: string | null;
+  kpis: KpiMarketing[];
+}
+
+/**
+ * KPIs de la semana vigente (o, si hoy cae fuera del calendario de S1-S4
+ * del periodo, la última semana configurada) -- lo que la persona debe
+ * revisar/completar AHORA, no un acumulado del mes completo.
+ */
+export async function kpisMarketingSemanaActual(vendedorId: string, periodoId: string): Promise<KpiMarketingSemanaActual> {
+  const supabase = await createClient();
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const { data: semanas } = await supabase
+    .from("periodo_semanas").select("semana, inicio, fin").eq("periodo_id", periodoId).order("semana");
+  const lista = semanas ?? [];
+  const actual = lista.find((s) => hoy >= s.inicio && hoy <= s.fin) ?? lista[lista.length - 1] ?? null;
+  if (!actual) return { semana: null, inicio: null, fin: null, kpis: [] };
+
+  const { data } = await supabase
+    .from("marketing_kpis")
+    .select("*")
+    .contains("responsable_ids", [vendedorId])
+    .gte("cronograma_inicio", actual.inicio)
+    .lte("cronograma_inicio", actual.fin)
+    .order("nombre_kpi", { ascending: true });
+
+  return { semana: actual.semana, inicio: actual.inicio, fin: actual.fin, kpis: (data as KpiMarketing[]) ?? [] };
+}
+
+export type CategoriaMarketingCoach = "leads" | "engagement" | "respuesta" | "crm" | "contenido" | "general";
+
+export interface AccionMarketingCoach {
+  categoria: CategoriaMarketingCoach;
+  nombre_kpi: string;
+  diagnostico: string;
+  mensaje: string;
+}
+
+/**
+ * Biblioteca chica de tácticas por tipo de métrica -- coincide contra el
+ * nombre real del KPI (nombre_kpi), no contra un id inventado, porque el
+ * catálogo de KPIs en Monday puede crecer sin que este código se entere.
+ * Una métrica que no matchea ningún patrón cae en el mensaje "general".
+ */
+const TACTICAS_MARKETING_POR_KPI: Array<{ patron: RegExp; categoria: CategoriaMarketingCoach; tactica: string }> = [
+  { patron: /leads?\s+calificados?/i, categoria: "leads",
+    tactica: "Revisa el criterio de calificación con ventas -- puede que el volumen esté bien pero la calidad se esté cayendo antes de tiempo. Prioriza los canales que ya te han dado leads calificados este mes." },
+  { patron: /\bmql\b|\bsql\b/i, categoria: "leads",
+    tactica: "Si los leads entran pero no avanzan, revisa el mensaje de las campañas activas -- suele ser un problema de segmentación, no de volumen." },
+  { patron: /tiempo.*respuesta/i, categoria: "respuesta",
+    tactica: "Ten plantillas de primera respuesta listas para los canales más lentos y activa notificaciones inmediatas de mensajes nuevos." },
+  { patron: /tiempo.*asignaci[oó]n/i, categoria: "respuesta",
+    tactica: "Automatiza la asignación de leads en cuanto entren -- cada minuto sin dueño baja la probabilidad real de conversión." },
+  { patron: /engagement/i, categoria: "engagement",
+    tactica: "Prueba variar el formato de los próximos 3 posts (video corto vs. imagen estática) y compara el engagement real entre ellos." },
+  { patron: /\bctr\b/i, categoria: "engagement",
+    tactica: "Revisa el hook de los primeros 3 segundos (o la primera línea del copy) -- ahí se decide la mayoría de los clics." },
+  { patron: /exactitud.*(crm|registro)|registro.*(crm|monday)/i, categoria: "crm",
+    tactica: "Bloquea 15 minutos al final del día solo para actualizar CRM/Monday -- un dato incompleto hoy afecta a todo el equipo mañana, no solo a Marketing." },
+  { patron: /contenido|im[aá]genes|pines|visitas? web|cambios? en la web/i, categoria: "contenido",
+    tactica: "Adelanta el contenido de la próxima semana desde ahora para no depender de producción de último momento." },
+];
+
+function tacticaMarketingPara(nombreKpi: string): { categoria: CategoriaMarketingCoach; tactica: string } {
+  const match = TACTICAS_MARKETING_POR_KPI.find((t) => t.patron.test(nombreKpi));
+  return match
+    ? { categoria: match.categoria, tactica: match.tactica }
+    : { categoria: "general", tactica: "Revisa qué cambió esta semana respecto a las semanas que sí cumplieron la meta -- casi siempre hay una causa concreta identificable, no solo variación normal." };
+}
+
+const UNIDAD_SUFIJO: Record<string, string> = { Porcentaje: "%", Tiempo: " min" };
+
+/**
+ * Diagnóstico de la semana vigente: un mensaje por cada KPI en Amarillo o
+ * Rojo (los Rojo primero), con la brecha real resultado-vs-meta y una
+ * táctica concreta según el tipo de métrica -- 100% derivado de datos ya
+ * calculados por Monday (Meta/Resultado/Semáforo), sin inventar ningún
+ * umbral nuevo. Si todo el semáforo de la semana está en Verde, regresa
+ * vacío (la UI muestra el estado "sin focos" igual que Coach Comercial).
+ */
+export async function diagnosticoMarketingCoach(vendedorId: string, periodoId: string): Promise<AccionMarketingCoach[]> {
+  const { kpis } = await kpisMarketingSemanaActual(vendedorId, periodoId);
+  if (kpis.length === 0) return [];
+
+  const enRiesgo = kpis
+    .filter((k) => k.semaforo === "Rojo" || k.semaforo === "Amarillo")
+    .sort((a) => (a.semaforo === "Rojo" ? -1 : 1));
+  if (enRiesgo.length === 0) return [];
+
+  return enRiesgo.map((k) => {
+    const { categoria, tactica } = tacticaMarketingPara(k.nombre_kpi);
+    const sufijo = k.unidad ? UNIDAD_SUFIJO[k.unidad] ?? "" : "";
+    const brecha = k.meta != null && k.resultado != null ? k.meta - k.resultado : null;
+    const diagnostico = k.semaforo === "Rojo" ? `${k.nombre_kpi} -- en rojo` : `${k.nombre_kpi} -- en amarillo`;
+    const mensaje =
+      `${k.nombre_kpi}: vas en ${k.resultado ?? "—"}${sufijo} de una meta de ${k.meta ?? "—"}${sufijo}` +
+      (brecha != null && brecha > 0 ? ` (te faltan ${brecha.toFixed(1)}${sufijo})` : "") +
+      `. ${tactica}`;
+    return { categoria, nombre_kpi: k.nombre_kpi, diagnostico, mensaje };
+  });
+}
+
+export interface RetoSemanaMarketing {
+  semana: number;
+  etiqueta: string;
+  inicio: string;
+  fin: string;
+  esSemanaActual: boolean;
+  totalKpis: number;
+  cumplidos: number;
+  amarillos: number;
+  rojos: number;
+  estatus: EstatusReto;
+}
+
+export interface DisciplinaMarketing {
+  semanas: RetoSemanaMarketing[];
+  rachaSemanas: number;
+}
+
+/**
+ * Ritmo semanal S1-S4, calcado de disciplinaComercial() pero agregando el
+ * semáforo de Monday en vez de recalcular metas propias: Cumplido si toda
+ * la semana está en Verde, En progreso si hay Amarillo sin ningún Rojo,
+ * No alcanzado si hay al menos un Rojo. Semanas futuras quedan
+ * "pendiente" (mismo criterio que ventas: no se puede fallar o cumplir
+ * algo que no ha pasado).
+ */
+export async function disciplinaMarketing(vendedorId: string, periodoId: string): Promise<DisciplinaMarketing | null> {
+  const supabase = await createClient();
+  const { data: semanas } = await supabase
+    .from("periodo_semanas").select("semana, inicio, fin").eq("periodo_id", periodoId).order("semana", { ascending: true });
+  if (!semanas || semanas.length === 0) return null;
+
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const filas: RetoSemanaMarketing[] = await Promise.all(semanas.map(async (s): Promise<RetoSemanaMarketing> => {
+    const esSemanaActual = hoy >= s.inicio && hoy <= s.fin;
+    const base = { semana: s.semana, etiqueta: `S${s.semana}`, inicio: s.inicio, fin: s.fin, esSemanaActual };
+
+    if (hoy < s.inicio) {
+      return { ...base, totalKpis: 0, cumplidos: 0, amarillos: 0, rojos: 0, estatus: "pendiente" };
+    }
+
+    const { data } = await supabase
+      .from("marketing_kpis")
+      .select("semaforo")
+      .contains("responsable_ids", [vendedorId])
+      .gte("cronograma_inicio", s.inicio)
+      .lte("cronograma_inicio", s.fin);
+    const kpis = (data as Array<{ semaforo: string | null }>) ?? [];
+    const cumplidos = kpis.filter((k) => k.semaforo === "Verde").length;
+    const amarillos = kpis.filter((k) => k.semaforo === "Amarillo").length;
+    const rojos = kpis.filter((k) => k.semaforo === "Rojo").length;
+    const estatus: EstatusReto = kpis.length === 0 ? "sin_dato" : rojos > 0 ? "no_alcanzado" : amarillos > 0 ? "en_progreso" : "cumplido";
+
+    return { ...base, totalKpis: kpis.length, cumplidos, amarillos, rojos, estatus };
+  }));
+
+  const evaluables = filas.filter((f) => f.fin <= hoy);
+  let rachaSemanas = 0;
+  for (let i = evaluables.length - 1; i >= 0; i--) {
+    if (evaluables[i].estatus === "cumplido") rachaSemanas++; else break;
+  }
+
+  return { semanas: filas, rachaSemanas };
+}

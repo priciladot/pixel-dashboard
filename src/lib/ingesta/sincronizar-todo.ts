@@ -1,14 +1,17 @@
 /**
  * Corte unificado: Deals + KPIs + contacto_ids/correos de HubSpot,
- * Analítica (historial de etapas, actividades/tareas, leads) y Cierres de
- * Monday, las 3 en una sola llamada -- compartida por el cron automático
- * (/api/cron/sincronizar-todo, 2 veces al día) y por el botón manual
- * "🔄 Sincronizar HubSpot" en /maestro, para que ambos disparen exactamente
- * el mismo flujo y no se desalineen con el tiempo.
+ * Analítica (historial de etapas, actividades/tareas, leads), Cierres de
+ * Monday, y KPIs de Marketing, las 4 en una sola llamada -- compartida por
+ * el cron automático (/api/cron/sincronizar-todo, 2 veces al día) y por
+ * el botón manual "🔄 Sincronizar HubSpot" en /maestro, para que ambos
+ * disparen exactamente el mismo flujo y no se desalineen con el tiempo.
  *
- * Las 3 secciones corren en paralelo (son APIs independientes, ninguna
- * depende del resultado de otra) -- si una falla, las otras dos igual se
- * guardan; el resultado de cada una se reporta aparte.
+ * Las 4 secciones corren en paralelo (son APIs independientes, ninguna
+ * depende del resultado de otra) -- si una falla, las otras igual se
+ * guardan; el resultado de cada una se reporta aparte. KPIs de Marketing
+ * entra aquí (en vez de tener su propio cron) porque el plan Hobby de
+ * Vercel solo permite 2 cron jobs -- ya están ocupados por los 2 cortes
+ * diarios de este mismo corte unificado.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -18,7 +21,8 @@ import {
 } from "./hubspot";
 import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads } from "./hubspot-analitica";
 import { listarCierres } from "./monday";
-import { ingestarAnaliticaHubspot, ingestarCierresMonday, ingestarDeals } from "./cargar";
+import { listarKpisMarketing } from "./monday-marketing";
+import { ingestarAnaliticaHubspot, ingestarCierresMonday, ingestarDeals, ingestarKpisMarketing } from "./cargar";
 
 export interface SeccionResultado {
   ok: boolean;
@@ -30,6 +34,7 @@ export interface ResultadoSincronizacionTodo {
   deals: SeccionResultado;
   analitica: SeccionResultado;
   monday: SeccionResultado;
+  marketing: SeccionResultado;
 }
 
 function aResultado(r: PromiseSettledResult<Record<string, unknown>>): SeccionResultado {
@@ -55,8 +60,9 @@ export async function sincronizarTodo(
   const { periodoId, desde, hasta, ventana, origen, simulacion = false, ejecutadoPor } = opciones;
   const tipoDeals = origen === "manual" ? "hubspot_api" : "hubspot_cron";
   const tipoMonday = origen === "manual" ? "monday_api" : "monday_cron";
+  const tipoMarketing = origen === "manual" ? "monday_mkt_api" : "monday_mkt_cron";
 
-  const [deals, analitica, monday] = await Promise.allSettled([
+  const [deals, analitica, monday, marketing] = await Promise.allSettled([
     (async () => {
       const owners = await listarOwners();
       const [cerrados, creados, abiertos] = await Promise.all([
@@ -92,7 +98,12 @@ export async function sincronizarTodo(
       const r = await ingestarCierresMonday(db, crudos, { tipo: tipoMonday });
       return { ingestaId: r.ingestaId, elementosLeidos: crudos.length, filasOk: r.filasOk, sinAsignar: r.sinAsignar };
     })(),
+    (async () => {
+      const crudos = await listarKpisMarketing();
+      const r = await ingestarKpisMarketing(db, crudos, { tipo: tipoMarketing });
+      return { ingestaId: r.ingestaId, elementosLeidos: crudos.length, filasOk: r.filasOk, sinAsignar: r.sinAsignar };
+    })(),
   ]);
 
-  return { deals: aResultado(deals), analitica: aResultado(analitica), monday: aResultado(monday) };
+  return { deals: aResultado(deals), analitica: aResultado(analitica), monday: aResultado(monday), marketing: aResultado(marketing) };
 }

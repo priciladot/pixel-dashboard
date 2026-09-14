@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { esAdmin, esDireccion } from "@/lib/auth";
+import { esAdmin, esDireccion, esMarketing, esMarketingLead } from "@/lib/auth";
 import type { Perfil } from "@/lib/types";
 
 const ROL_ETIQUETA: Record<Perfil["rol"], string> = {
   admin: "Administrador general",
   supervisor: "Dirección / Supervisión",
   vendedor: "Vendedor",
+  marketing: "Marketing",
+  marketing_lead: "Marketing — Lead",
 };
 
 async function cerrarSesion() {
@@ -20,7 +22,12 @@ async function cerrarSesion() {
 export function Shell({ perfil, children }: { perfil: Perfil; children: React.ReactNode }) {
   const links: Array<{ href: string; texto: string }> = [];
   if (esDireccion(perfil)) links.push({ href: "/maestro", texto: "Dashboard maestro" });
-  links.push({ href: `/vendedor/${perfil.id}`, texto: esDireccion(perfil) ? "Mi perfil" : "Mi evaluación" });
+  if (esMarketingLead(perfil)) links.push({ href: "/mkt", texto: "Marketing equipo" });
+  if (esMarketing(perfil)) {
+    links.push({ href: `/mkt/${perfil.id}`, texto: "Mi Marketing" });
+  } else {
+    links.push({ href: `/vendedor/${perfil.id}`, texto: esDireccion(perfil) ? "Mi perfil" : "Mi evaluación" });
+  }
   if (esAdmin(perfil)) links.push({ href: "/ingesta", texto: "Ingesta de datos" });
 
   return (
