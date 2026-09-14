@@ -81,7 +81,7 @@ function pendienteValido(r: unknown): r is PendienteLompiCrudo {
     (x.vendedor_email === undefined || typeof x.vendedor_email === "string") &&
     (x.clave_externa === undefined || typeof x.clave_externa === "string") &&
     (x.descripcion === undefined || typeof x.descripcion === "string") &&
-    (x.vendedor_telefono || x.vendedor_email)
+    (x.vendedor_telefono !== undefined || x.vendedor_email !== undefined)
   );
 }
 
