@@ -374,8 +374,7 @@ function DisciplinaMarketingTabla({ disciplina }: { disciplina: DisciplinaMarket
   if (semanas.length === 0) {
     return <p className="text-[13px] text-ink-soft">Sin calendario de semanas (S1-S4) configurado para este periodo.</p>;
   }
-  const hoy = new Date().toISOString().slice(0, 10);
-  const etiquetaTemporalDe = (s: RetoSemanaMarketing): string => (s.esSemanaActual ? "En curso" : s.fin < hoy ? "Pasada" : "Próxima");
+  const etiquetaTemporalDe = (s: RetoSemanaMarketing): string => (s.esSemanaActual ? "En curso" : "Pasada");
 
   return (
     <>
@@ -407,7 +406,9 @@ function DisciplinaMarketingTabla({ disciplina }: { disciplina: DisciplinaMarket
                     <span className={`ml-1.5 text-[10px] font-medium ${s.esSemanaActual ? "text-serie-1" : "text-ink-muted"}`}>
                       ({etiquetaTemporalDe(s)})
                     </span>
-                    <span className="block text-[11px] font-normal text-ink-muted">{formatearRangoFechas(s.inicio, s.fin)}</span>
+                    <span className="block text-[11px] font-normal text-ink-muted">
+                      {s.inicio && s.fin ? formatearRangoFechas(s.inicio, s.fin) : "Sin fecha de cronograma"}
+                    </span>
                   </td>
                   <td className="px-4 py-2.5 tabular text-ink-soft">{s.totalKpis}</td>
                   <td className="px-4 py-2.5 tabular text-ink-soft">{s.cumplidos} / {s.amarillos} / {s.rojos}</td>

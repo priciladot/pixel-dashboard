@@ -1893,53 +1893,64 @@ export interface KpiMarketingSemanaActual {
   kpis: KpiMarketing[];
 }
 
-/**
- * Divide un mes CALENDARIO real (periodos.cal_inicio/cal_fin) en 4 semanas
- * -- NO usa periodo_semanas: esa tabla son las semanas de la ventana de
- * KPI de VENTAS (4 semanas corridas, ej. el periodo "2026-08" arranca el
- * 23 de julio), completamente desalineadas del mes de calendario real que
- * usa el tablero de Marketing en Monday. Reusarla aquí hacía que ningún
- * KPI de Marketing cayera nunca en la semana "correcta".
- */
-function semanasDelMes(calInicio: string, calFin: string): Array<{ semana: number; inicio: string; fin: string }> {
-  const fin = new Date(`${calFin}T00:00:00Z`);
-  const semanas: Array<{ semana: number; inicio: string; fin: string }> = [];
-  let cursor = new Date(`${calInicio}T00:00:00Z`);
-  let n = 1;
-  while (cursor <= fin && n <= 4) {
-    const finSemana = n === 4 ? fin : new Date(Math.min(cursor.getTime() + 6 * 86_400_000, fin.getTime()));
-    semanas.push({ semana: n, inicio: cursor.toISOString().slice(0, 10), fin: finSemana.toISOString().slice(0, 10) });
-    cursor = new Date(finSemana.getTime() + 86_400_000);
-    n++;
-  }
-  return semanas;
+const MESES_ES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+] as const;
+
+/** "2026-09" (periodos.mes=9) -> "Septiembre", para matchear el texto que ya trae Monday en marketing_kpis.mes. */
+function mesEspanolDe(mes: number): string {
+  return MESES_ES[mes - 1] ?? "";
+}
+
+/** Extrae el número de "Semana 3" -> 3. Si no matchea el patrón, NaN (se filtra). */
+function numeroDeSemana(semana: string | null): number {
+  if (!semana) return NaN;
+  const m = semana.match(/\d+/);
+  return m ? parseInt(m[0], 10) : NaN;
 }
 
 /**
- * KPIs de la semana vigente (o, si hoy cae fuera del mes del periodo, la
- * última semana del mes) -- lo que la persona debe revisar/completar
- * AHORA, no un acumulado del mes completo. Semanas de CALENDARIO real
- * (ver semanasDelMes), no las de la ventana de KPI de ventas.
+ * IMPORTANTE: Marketing NO numera sus semanas por fecha de calendario --
+ * "Semana 1" de un mes puede arrancar varios días antes del día 1 (ej.
+ * "Semana 1" de septiembre empieza el 27 de agosto), y un mes puede tener
+ * 4 o 5 semanas según cómo caigan. No hay fórmula de fechas confiable
+ * para esto -- Marketing ya decidió esa numeración en Monday (columnas
+ * "Mes"/"Semana" de marketing_kpis), así que se usa esa etiqueta de texto
+ * directamente en vez de recalcularla. (Dos intentos previos -- las
+ * semanas de ventas, y luego 4 semanas parejas de calendario -- fallaron
+ * exactamente por asumir una fórmula de fechas en vez de leer el dato.)
+ *
+ * KPIs de la semana vigente -- se toma como "vigente" la semana con el
+ * número más alto que ya tenga captura ese mes (el equipo llena las
+ * semanas en orden, así que la última capturada es la actual). Si el mes
+ * todavía no tiene ninguna fila, no hay semana que mostrar.
  */
 export async function kpisMarketingSemanaActual(vendedorId: string, periodoId: string): Promise<KpiMarketingSemanaActual> {
   const supabase = await createClient();
-  const { data: periodo } = await supabase.from("periodos").select("cal_inicio, cal_fin").eq("id", periodoId).maybeSingle();
+  const { data: periodo } = await supabase.from("periodos").select("anio, mes").eq("id", periodoId).maybeSingle();
   if (!periodo) return { semana: null, inicio: null, fin: null, kpis: [] };
 
-  const hoy = new Date().toISOString().slice(0, 10);
-  const lista = semanasDelMes(periodo.cal_inicio, periodo.cal_fin);
-  const actual = lista.find((s) => hoy >= s.inicio && hoy <= s.fin) ?? lista[lista.length - 1] ?? null;
-  if (!actual) return { semana: null, inicio: null, fin: null, kpis: [] };
-
+  const mesTexto = mesEspanolDe(periodo.mes);
   const { data } = await supabase
     .from("marketing_kpis")
     .select("*")
     .contains("responsable_ids", [vendedorId])
-    .gte("cronograma_inicio", actual.inicio)
-    .lte("cronograma_inicio", actual.fin)
+    .ilike("mes", mesTexto)
     .order("nombre_kpi", { ascending: true });
+  const todas = (data as KpiMarketing[]) ?? [];
+  if (todas.length === 0) return { semana: null, inicio: null, fin: null, kpis: [] };
 
-  return { semana: actual.semana, inicio: actual.inicio, fin: actual.fin, kpis: (data as KpiMarketing[]) ?? [] };
+  const semanaActual = Math.max(...todas.map((k) => numeroDeSemana(k.semana)).filter((n) => !Number.isNaN(n)));
+  const kpis = todas.filter((k) => numeroDeSemana(k.semana) === semanaActual);
+  const fechas = kpis.map((k) => k.cronograma_inicio).filter((f): f is string => f != null).sort();
+
+  return {
+    semana: Number.isFinite(semanaActual) ? semanaActual : null,
+    inicio: fechas[0] ?? null,
+    fin: fechas[fechas.length - 1] ?? null,
+    kpis,
+  };
 }
 
 export type CategoriaMarketingCoach = "leads" | "engagement" | "respuesta" | "crm" | "contenido" | "general";
@@ -2044,44 +2055,53 @@ export interface DisciplinaMarketing {
  */
 export async function disciplinaMarketing(vendedorId: string, periodoId: string): Promise<DisciplinaMarketing | null> {
   const supabase = await createClient();
-  const { data: periodo } = await supabase.from("periodos").select("cal_inicio, cal_fin").eq("id", periodoId).maybeSingle();
+  const { data: periodo } = await supabase.from("periodos").select("mes").eq("id", periodoId).maybeSingle();
   if (!periodo) return null;
 
-  const semanas = semanasDelMes(periodo.cal_inicio, periodo.cal_fin);
-  const hoy = new Date().toISOString().slice(0, 10);
+  const mesTexto = mesEspanolDe(periodo.mes);
+  const { data } = await supabase
+    .from("marketing_kpis")
+    .select("nombre_kpi, semaforo, semana, cronograma_inicio")
+    .contains("responsable_ids", [vendedorId])
+    .ilike("mes", mesTexto);
+  const todas = (data as Array<{
+    nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" | null;
+    semana: string | null; cronograma_inicio: string | null;
+  }>) ?? [];
+  if (todas.length === 0) return null;
 
-  const filas: RetoSemanaMarketing[] = await Promise.all(semanas.map(async (s): Promise<RetoSemanaMarketing> => {
-    const esSemanaActual = hoy >= s.inicio && hoy <= s.fin;
-    const base = { semana: s.semana, etiqueta: `S${s.semana}`, inicio: s.inicio, fin: s.fin, esSemanaActual };
+  const numerosSemana = [...new Set(todas.map((k) => numeroDeSemana(k.semana)).filter((n) => !Number.isNaN(n)))]
+    .sort((a, b) => a - b);
+  if (numerosSemana.length === 0) return null;
+  const semanaMax = Math.max(...numerosSemana);
+  const ordenSemaforo = { Rojo: 0, Amarillo: 1, Verde: 2 } as const;
 
-    if (hoy < s.inicio) {
-      return { ...base, totalKpis: 0, cumplidos: 0, amarillos: 0, rojos: 0, detalleKpis: [], estatus: "pendiente" };
-    }
-
-    const { data } = await supabase
-      .from("marketing_kpis")
-      .select("nombre_kpi, semaforo")
-      .contains("responsable_ids", [vendedorId])
-      .gte("cronograma_inicio", s.inicio)
-      .lte("cronograma_inicio", s.fin);
-    const kpis = (data as Array<{ nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" | null }>) ?? [];
-    const cumplidos = kpis.filter((k) => k.semaforo === "Verde").length;
-    const amarillos = kpis.filter((k) => k.semaforo === "Amarillo").length;
-    const rojos = kpis.filter((k) => k.semaforo === "Rojo").length;
-    const ordenSemaforo = { Rojo: 0, Amarillo: 1, Verde: 2 } as const;
-    const detalleKpis = kpis
-      .filter((k): k is { nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" } => k.semaforo != null)
+  const filas: RetoSemanaMarketing[] = numerosSemana.map((n) => {
+    const kpis = todas.filter((k) => numeroDeSemana(k.semana) === n);
+    const fechas = kpis.map((k) => k.cronograma_inicio).filter((f): f is string => f != null).sort();
+    const conColor = kpis.filter((k): k is typeof k & { semaforo: "Verde" | "Amarillo" | "Rojo" } => k.semaforo != null);
+    const cumplidos = conColor.filter((k) => k.semaforo === "Verde").length;
+    const amarillos = conColor.filter((k) => k.semaforo === "Amarillo").length;
+    const rojos = conColor.filter((k) => k.semaforo === "Rojo").length;
+    const detalleKpis = [...conColor]
       .sort((a, b) => ordenSemaforo[a.semaforo] - ordenSemaforo[b.semaforo])
       .map((k) => ({ nombre_kpi: k.nombre_kpi, semaforo: k.semaforo }));
-    const estatus: EstatusReto = kpis.length === 0 ? "sin_dato" : rojos > 0 ? "no_alcanzado" : amarillos > 0 ? "en_progreso" : "cumplido";
+    const estatus: EstatusReto = conColor.length === 0 ? "sin_dato" : rojos > 0 ? "no_alcanzado" : amarillos > 0 ? "en_progreso" : "cumplido";
 
-    return { ...base, totalKpis: kpis.length, cumplidos, amarillos, rojos, detalleKpis, estatus };
-  }));
+    return {
+      semana: n,
+      etiqueta: `S${n}`,
+      inicio: fechas[0] ?? "",
+      fin: fechas[fechas.length - 1] ?? "",
+      esSemanaActual: n === semanaMax,
+      totalKpis: conColor.length,
+      cumplidos, amarillos, rojos, detalleKpis, estatus,
+    };
+  });
 
-  const evaluables = filas.filter((f) => f.fin <= hoy);
   let rachaSemanas = 0;
-  for (let i = evaluables.length - 1; i >= 0; i--) {
-    if (evaluables[i].estatus === "cumplido") rachaSemanas++; else break;
+  for (let i = filas.length - 1; i >= 0; i--) {
+    if (filas[i].estatus === "cumplido") rachaSemanas++; else break;
   }
 
   return { semanas: filas, rachaSemanas };
@@ -2109,7 +2129,7 @@ export interface ResumenMarketingMes {
 export async function historialMarketingMensual(vendedorId: string, periodoIds: string[]): Promise<ResumenMarketingMes[]> {
   const supabase = await createClient();
   const { data: periodosData } = await supabase
-    .from("periodos").select("id, etiqueta, cal_inicio, cal_fin").in("id", periodoIds);
+    .from("periodos").select("id, etiqueta, mes").in("id", periodoIds);
   const periodosPorId = new Map((periodosData ?? []).map((p) => [p.id, p]));
 
   const resultados = await Promise.all(periodoIds.map(async (id): Promise<ResumenMarketingMes | null> => {
@@ -2120,8 +2140,7 @@ export async function historialMarketingMensual(vendedorId: string, periodoIds: 
       .from("marketing_kpis")
       .select("nombre_kpi, semaforo")
       .contains("responsable_ids", [vendedorId])
-      .gte("cronograma_inicio", p.cal_inicio)
-      .lte("cronograma_inicio", p.cal_fin);
+      .ilike("mes", mesEspanolDe(p.mes));
     const kpis = (data as Array<{ nombre_kpi: string; semaforo: "Verde" | "Amarillo" | "Rojo" | null }>) ?? [];
     const ordenSemaforo = { Rojo: 0, Amarillo: 1, Verde: 2 } as const;
 
