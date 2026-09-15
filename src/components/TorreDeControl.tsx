@@ -1528,7 +1528,11 @@ function DisciplinaComercial({
                     {s.tareasFaltantes.length > 0 && s.tareasFaltantes.length < 5 && (
                       <ul className="mt-1 space-y-0.5 text-[11px] font-normal text-[#a04a25]">
                         {s.tareasFaltantes.map((t) => (
-                          <li key={t.hubspot_id}>· {t.asunto ?? "(sin asunto)"}</li>
+                          <li key={t.hubspot_id}>
+                            · {t.asunto ?? "(sin asunto)"}
+                            {t.negocio && <> — {t.negocio}</>}
+                            {t.correo && <> ({t.correo})</>}
+                          </li>
                         ))}
                       </ul>
                     )}

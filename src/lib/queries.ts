@@ -1480,7 +1480,7 @@ export interface RetoSemana {
   estatusVolumen: EstatusReto;
   tareasAsignadas: number;
   tareasCompletadas: number;
-  tareasFaltantes: Array<{ hubspot_id: string; asunto: string | null; fecha: string | null }>;
+  tareasFaltantes: Array<{ hubspot_id: string; asunto: string | null; fecha: string | null; negocio: string | null; correo: string | null }>;
   estatusCrm: EstatusReto;
   notas: number;
   estatusGeneral: EstatusReto;
@@ -1548,10 +1548,10 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
         return (data as Array<{ hubspot_id: string }>) ?? [];
       })(),
       (async () => {
-        const { data } = await supabase.from("hubspot_engagements").select("hubspot_id, asunto, fecha, estado")
+        const { data } = await supabase.from("hubspot_engagements").select("hubspot_id, asunto, fecha, estado, deal_id_ref")
           .eq("vendedor_id", vendedorId).eq("tipo", "task")
           .gte("fecha", inicioTs).lte("fecha", finTs);
-        return (data as Array<{ hubspot_id: string; asunto: string | null; fecha: string | null; estado: string | null }>) ?? [];
+        return (data as Array<{ hubspot_id: string; asunto: string | null; fecha: string | null; estado: string | null; deal_id_ref: string | null }>) ?? [];
       })(),
       (async () => {
         const { data } = await supabase.from("hubspot_engagements").select("hubspot_id")
@@ -1571,7 +1571,7 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
     const tareasCompletadas = tareas.filter((t) => t.estado === "COMPLETED").length;
     const tareasFaltantes = tareas
       .filter((t) => t.estado !== "COMPLETED")
-      .map((t) => ({ hubspot_id: t.hubspot_id, asunto: t.asunto, fecha: t.fecha }));
+      .map((t) => ({ hubspot_id: t.hubspot_id, asunto: t.asunto, fecha: t.fecha, deal_id_ref: t.deal_id_ref }));
     const estatusCrm: EstatusReto =
       tareasAsignadas === 0 ? "sin_dato" :
       tareasCompletadas === tareasAsignadas ? "cumplido" :
@@ -1595,8 +1595,31 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
     };
   }));
 
-  const semanasFinal: RetoSemana[] = base.map((f, idx) => {
-    const anterior = idx > 0 ? base[idx - 1] : null;
+  // El asunto de la tarea ("evento nov") no dice nada por sí solo -- se
+  // enriquece con el nombre real del negocio y el correo del contacto
+  // (mismo cruce que ya usa dealsEstancados) para que sea accionable sin
+  // tener que ir a buscarlo a mano en HubSpot.
+  const dealIdsTareas = [...new Set(
+    base.flatMap((b) => b.tareasFaltantes.map((t) => t.deal_id_ref).filter((id): id is string => id != null)),
+  )];
+  const [{ data: negociosData }, mapaCorreoTareas] = await Promise.all([
+    supabase.from("hubspot_deals").select("hubspot_id, nombre").in("hubspot_id", dealIdsTareas),
+    correoDeContactoPorDeal(supabase, dealIdsTareas),
+  ]);
+  const mapaNegocioTareas = new Map(
+    ((negociosData as Array<{ hubspot_id: string; nombre: string | null }>) ?? []).map((n) => [n.hubspot_id, n.nombre]),
+  );
+  const baseEnriquecida = base.map((b) => ({
+    ...b,
+    tareasFaltantes: b.tareasFaltantes.map((t) => ({
+      ...t,
+      negocio: t.deal_id_ref ? mapaNegocioTareas.get(t.deal_id_ref) ?? null : null,
+      correo: t.deal_id_ref ? mapaCorreoTareas.get(t.deal_id_ref) ?? null : null,
+    })),
+  }));
+
+  const semanasFinal: RetoSemana[] = baseEnriquecida.map((f, idx) => {
+    const anterior = idx > 0 ? baseEnriquecida[idx - 1] : null;
     const esFutura = f.inicio > hoy;
 
     // Una semana que todavía no empieza no tiene nada que evaluar -- 0
