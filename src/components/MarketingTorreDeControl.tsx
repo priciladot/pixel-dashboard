@@ -2,9 +2,9 @@ import { Suspense } from "react";
 import {
   vendedores, periodos, periodoActivoDe,
   kpisMarketingSemanaActual, diagnosticoMarketingCoach, disciplinaMarketing, tareasMarketing, historialMarketingMensual,
-  metricasCanalDelVendedor,
+  metricasCanalDelVendedor, notasGestionMarketing,
   type KpiMarketing, type AccionMarketingCoach, type DisciplinaMarketing, type RetoSemanaMarketing, type TareaMarketing,
-  type ResumenMarketingMes, type MetricaCanal,
+  type ResumenMarketingMes, type MetricaCanal, type NotaGestion,
 } from "@/lib/queries";
 import type { EstatusReto } from "@/lib/queries";
 import { Card, Seccion, Vacio } from "@/components/ui";
@@ -103,13 +103,14 @@ export async function MarketingTorreDeControl({
   const indicePeriodo = lista.findIndex((p) => p.id === periodoId);
   const periodosHistorial = lista.slice(indicePeriodo, indicePeriodo + 3).map((p) => p.id);
 
-  const [semanaActual, coach, disciplina, tareas, historial, metricasCanal] = await Promise.all([
+  const [semanaActual, coach, disciplina, tareas, historial, metricasCanal, notas] = await Promise.all([
     kpisMarketingSemanaActual(vendedorIdForzado, periodoId),
     diagnosticoMarketingCoach(vendedorIdForzado, periodoId),
     disciplinaMarketing(vendedorIdForzado, periodoId),
     tareasMarketing(vendedorIdForzado),
     historialMarketingMensual(vendedorIdForzado, periodosHistorial),
     metricasCanalDelVendedor(vendedorIdForzado),
+    notasGestionMarketing(vendedorIdForzado),
   ]);
 
   return (
@@ -129,6 +130,12 @@ export async function MarketingTorreDeControl({
       <Seccion titulo="📋 Pendientes y tareas" descripcion="Entregables asignados por dirección/lead de Marketing -- cuotas mensuales o tareas puntuales, con fecha límite.">
         <TareasMarketingLista tareas={tareas} />
       </Seccion>
+
+      {notas.length > 0 && (
+        <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
+          <NotasGestionLista notas={notas} />
+        </Seccion>
+      )}
 
       <Seccion
         titulo="KPIs de esta semana"
@@ -185,6 +192,34 @@ function SemaforoMktBadge({ estado }: { estado: "Verde" | "Amarillo" | "Rojo" | 
 }
 
 /** Pendientes/tareas asignadas a mano (marketing_tareas) -- rojo si ya venció, amarillo si vence en 2 días o menos. */
+const FORMATO_FECHA_NOTA = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "long", year: "numeric" });
+
+/** Notas de gestión (marketing_notas) -- llamadas de atención / reconocimientos, sin fecha límite ni estatus. */
+function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
+  return (
+    <ul className="space-y-2">
+      {notas.map((n) => {
+        const esLlamadaAtencion = n.tipo === "llamada_atencion";
+        const color = esLlamadaAtencion ? "#d03b3b" : "#0ca30c";
+        const bg = esLlamadaAtencion ? "#fdecec" : "#e9f7e9";
+        const borde = esLlamadaAtencion ? "#f3c2c2" : "#bfe6bf";
+        return (
+          <li key={n.id} className="rounded-card border px-4 py-3" style={{ backgroundColor: bg, borderColor: borde }}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[13px] font-medium text-ink">
+                <span style={{ color }}>{esLlamadaAtencion ? "⚠️ Llamada de atención" : "✅ Reconocimiento"}</span>
+                {" — "}{n.titulo}
+              </p>
+              <span className="text-[11px] text-ink-muted">{FORMATO_FECHA_NOTA.format(new Date(n.creado_en))}</span>
+            </div>
+            {n.detalle && <p className="mt-1 text-[12px] text-ink-soft">{n.detalle}</p>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function TareasMarketingLista({ tareas }: { tareas: TareaMarketing[] }) {
   if (tareas.length === 0) {
     return <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">Sin pendientes abiertos.</Card>;

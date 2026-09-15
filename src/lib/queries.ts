@@ -2278,3 +2278,21 @@ export async function tareasMarketing(vendedorId?: string): Promise<TareaMarketi
     dias_para_vencer: Math.round((new Date(`${t.fecha_limite}T00:00:00Z`).getTime() - hoy.getTime()) / 86_400_000),
   }));
 }
+
+export interface NotaGestion {
+  id: number;
+  vendedor_id: string;
+  tipo: "llamada_atencion" | "reconocimiento";
+  titulo: string;
+  detalle: string | null;
+  creado_en: string;
+}
+
+/** Notas de gestión individual (marketing_notas) -- antecedente permanente, no un pendiente con fecha límite. */
+export async function notasGestionMarketing(vendedorId?: string): Promise<NotaGestion[]> {
+  const supabase = await createClient();
+  let q = supabase.from("marketing_notas").select("*");
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.order("creado_en", { ascending: false });
+  return (data as NotaGestion[]) ?? [];
+}
