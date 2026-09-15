@@ -488,8 +488,8 @@ export async function TorreDeControl({
         titulo="📉 Motivos de pérdida"
         descripcion={
           seleccionado
-            ? `Catálogo real de categoria_perdida para los negocios perdidos de ${seleccionado.nombre_corto}.`
-            : "Catálogo real de categoria_perdida para los negocios perdidos del equipo."
+            ? `Categoría y motivo específico (capturado en HubSpot al cerrar) de los negocios perdidos de ${seleccionado.nombre_corto}.`
+            : "Categoría y motivo específico (capturado en HubSpot al cerrar) de los negocios perdidos del equipo."
         }
       >
         <MotivosPerdidaLista filas={perdidas} />
@@ -826,18 +826,30 @@ function MotivosPerdidaLista({ filas }: { filas: MotivoPerdida[] }) {
 
   return (
     <Card className="px-4 py-4">
-      <ul className="space-y-1.5">
+      <ul className="space-y-3">
         {filas.map((f) => (
-          <li key={f.categoria_perdida} className="flex items-center gap-3 text-[12px]">
-            <span className="w-56 shrink-0 truncate text-ink-soft" title={f.categoria_perdida}>{f.categoria_perdida}</span>
-            <div className="flex-1">
-              <div className="barra-pista">
-                <div className="barra-valor" style={{ width: `${Math.max(2, (f.deals / total) * 100)}%`, backgroundColor: "#c0392b" }} />
+          <li key={f.categoria_perdida}>
+            <div className="flex items-center gap-3 text-[12px]">
+              <span className="w-56 shrink-0 truncate font-medium text-ink" title={f.categoria_perdida}>{f.categoria_perdida}</span>
+              <div className="flex-1">
+                <div className="barra-pista">
+                  <div className="barra-valor" style={{ width: `${Math.max(2, (f.deals / total) * 100)}%`, backgroundColor: "#c0392b" }} />
+                </div>
               </div>
+              <span className="tabular w-32 shrink-0 text-right font-medium text-ink">
+                {f.deals} · {dinero(f.monto_sin_iva)} sin IVA
+              </span>
             </div>
-            <span className="tabular w-32 shrink-0 text-right font-medium text-ink">
-              {f.deals} · {dinero(f.monto_sin_iva)} sin IVA
-            </span>
+            {f.detalle.length > 1 && (
+              <ul className="mt-1.5 ml-4 space-y-1 border-l border-line pl-3">
+                {f.detalle.map((d) => (
+                  <li key={d.motivo} className="flex items-center gap-3 text-[11px] text-ink-soft">
+                    <span className="w-52 shrink-0 truncate" title={d.motivo}>{d.motivo}</span>
+                    <span className="tabular flex-1 text-right">{d.deals} · {dinero(d.monto_sin_iva)} sin IVA</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

@@ -652,33 +652,62 @@ export async function ventasConProducto(periodoId: string, vendedorId?: string):
   }));
 }
 
-export interface MotivoPerdida {
-  categoria_perdida: string;
+export interface DetalleMotivo {
+  motivo: string;
   deals: number;
   monto_sin_iva: number;
 }
 
-/** Desglose de motivos de pérdida (catálogo real de hubspot_deals.categoria_perdida, no inventado). */
+export interface MotivoPerdida {
+  categoria_perdida: string;
+  deals: number;
+  monto_sin_iva: number;
+  detalle: DetalleMotivo[];
+}
+
+/**
+ * Desglose de motivos de pérdida -- catálogo real de HubSpot, no
+ * inventado: categoria_perdida (5 categorías del catálogo de dirección)
+ * y, dentro de cada una, el motivo_perdida específico que el vendedor
+ * ya captura al cerrar el negocio como perdido/diferido en HubSpot
+ * (ej. "Precio fuera de presupuesto" dentro de "Perdido en competencia").
+ * Un negocio con categoría pero sin motivo específico capturado cae en
+ * "Sin motivo específico", visible aparte en vez de perderse en el total.
+ */
 export async function motivosPerdida(periodoId: string, vendedorId?: string): Promise<MotivoPerdida[]> {
   const supabase = await createClient();
   let q = supabase
     .from("hubspot_deals")
-    .select("categoria_perdida, monto_sin_iva")
+    .select("categoria_perdida, motivo_perdida, monto_sin_iva")
     .eq("periodo_id", periodoId)
     .eq("cerrado_ganado", false)
     .not("categoria_perdida", "is", null);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.limit(2000);
 
-  const mapa = new Map<string, { deals: number; monto: number }>();
-  for (const r of (data as Array<{ categoria_perdida: string; monto_sin_iva: number | null }>) ?? []) {
-    const cur = mapa.get(r.categoria_perdida) ?? { deals: 0, monto: 0 };
+  const mapa = new Map<string, { deals: number; monto: number; motivos: Map<string, { deals: number; monto: number }> }>();
+  for (const r of (data as Array<{ categoria_perdida: string; motivo_perdida: string | null; monto_sin_iva: number | null }>) ?? []) {
+    const cur = mapa.get(r.categoria_perdida) ?? { deals: 0, monto: 0, motivos: new Map() };
     cur.deals += 1;
     cur.monto += r.monto_sin_iva ?? 0;
+
+    const nombreMotivo = r.motivo_perdida ?? "Sin motivo específico";
+    const curMotivo = cur.motivos.get(nombreMotivo) ?? { deals: 0, monto: 0 };
+    curMotivo.deals += 1;
+    curMotivo.monto += r.monto_sin_iva ?? 0;
+    cur.motivos.set(nombreMotivo, curMotivo);
+
     mapa.set(r.categoria_perdida, cur);
   }
   return [...mapa.entries()]
-    .map(([categoria_perdida, v]) => ({ categoria_perdida, deals: v.deals, monto_sin_iva: v.monto }))
+    .map(([categoria_perdida, v]) => ({
+      categoria_perdida,
+      deals: v.deals,
+      monto_sin_iva: v.monto,
+      detalle: [...v.motivos.entries()]
+        .map(([motivo, m]) => ({ motivo, deals: m.deals, monto_sin_iva: m.monto }))
+        .sort((a, b) => b.deals - a.deals),
+    }))
     .sort((a, b) => b.deals - a.deals);
 }
 
