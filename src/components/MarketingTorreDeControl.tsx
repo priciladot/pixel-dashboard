@@ -75,9 +75,9 @@ export async function MarketingTorreDeControl({
                   <Card className="px-4 py-4 transition-shadow duration-200 hover:shadow-md">
                     <p className="text-[13px] font-semibold text-ink">{persona.nombre_completo}</p>
                     <p className="mt-0.5 text-[11px] text-ink-muted">
-                      {semanaActual.inicio && semanaActual.fin
-                        ? formatearRangoFechas(semanaActual.inicio, semanaActual.fin)
-                        : "Sin semana configurada"}
+                      {semanaActual.semana != null
+                        ? `Semana ${semanaActual.semana} de ${periodo.etiqueta}`
+                        : "Sin semana capturada todavía"}
                     </p>
                     <div className="mt-3 flex items-center gap-3 text-[13px] tabular">
                       <span style={{ color: "#0ca30c" }}>● {verdes}</span>
@@ -133,9 +133,9 @@ export async function MarketingTorreDeControl({
       <Seccion
         titulo="KPIs de esta semana"
         descripcion={
-          semanaActual.inicio && semanaActual.fin
-            ? `Semana ${semanaActual.semana ?? "—"} · ${formatearRangoFechas(semanaActual.inicio, semanaActual.fin)}`
-            : "Sin semana configurada para este periodo."
+          semanaActual.semana != null
+            ? `Semana ${semanaActual.semana} de ${periodo.etiqueta} -- la última que el equipo ya capturó en Monday.`
+            : "Sin semana capturada todavía para este mes."
         }
       >
         <TablaKpisSemana kpis={semanaActual.kpis} />
