@@ -2254,7 +2254,7 @@ export interface TareaMarketing {
   vendedor_id: string;
   titulo: string;
   descripcion: string | null;
-  tipo: "cuota_mensual" | "suelta";
+  tipo: "cuota_mensual" | "cuota_semanal" | "suelta";
   cantidad_requerida: number | null;
   cantidad_actual: number | null;
   fecha_limite: string;
@@ -2271,7 +2271,7 @@ export async function tareasMarketing(vendedorId?: string): Promise<TareaMarketi
   const hoy = new Date(); hoy.setUTCHours(0, 0, 0, 0);
   return ((data as Array<{
     id: number; vendedor_id: string; titulo: string; descripcion: string | null;
-    tipo: "cuota_mensual" | "suelta"; cantidad_requerida: number | null; cantidad_actual: number | null;
+    tipo: "cuota_mensual" | "cuota_semanal" | "suelta"; cantidad_requerida: number | null; cantidad_actual: number | null;
     fecha_limite: string;
   }>) ?? []).map((t) => ({
     ...t,
