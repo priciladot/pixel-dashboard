@@ -220,39 +220,64 @@ function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
   );
 }
 
+function ItemTareaMarketing({ t }: { t: TareaMarketing }) {
+  const atrasada = t.dias_para_vencer < 0;
+  const porVencer = t.dias_para_vencer >= 0 && t.dias_para_vencer <= 2;
+  const color = atrasada ? "#d03b3b" : porVencer ? "#8a6100" : "#0ca30c";
+  const bg = atrasada ? "#fdecec" : porVencer ? "#fdf4e0" : "#e9f7e9";
+  const borde = atrasada ? "#f3c2c2" : porVencer ? "#f2dfae" : "#bfe6bf";
+  const etiquetaFecha = atrasada
+    ? `Venció hace ${Math.abs(t.dias_para_vencer)} día${Math.abs(t.dias_para_vencer) === 1 ? "" : "s"}`
+    : t.dias_para_vencer === 0
+      ? "Vence hoy"
+      : `Vence en ${t.dias_para_vencer} día${t.dias_para_vencer === 1 ? "" : "s"}`;
+  return (
+    <li className="rounded-card border px-4 py-3" style={{ backgroundColor: bg, borderColor: borde }}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[13px] font-medium text-ink">{t.titulo}</p>
+        <span className="text-[11px] font-semibold" style={{ color }}>{etiquetaFecha}</span>
+      </div>
+      {t.descripcion && <p className="mt-1 text-[12px] text-ink-soft">{t.descripcion}</p>}
+      {t.cantidad_requerida != null && (
+        <p className="mt-1 text-[12px] text-ink-muted">
+          Avance: {t.cantidad_actual ?? 0} de {t.cantidad_requerida}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Críticas (atrasadas o vencen en 2 días o menos) arriba, siempre a la
+ * vista. Las que todavía tienen tiempo de sobra (verde) no se ocultan --
+ * solo se separan hasta abajo, en su propia sección, para que lo urgente
+ * no se pierda entre lo que no lo es.
+ */
 function TareasMarketingLista({ tareas }: { tareas: TareaMarketing[] }) {
   if (tareas.length === 0) {
     return <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">Sin pendientes abiertos.</Card>;
   }
+  const criticas = tareas.filter((t) => t.dias_para_vencer <= 2);
+  const conTiempo = tareas.filter((t) => t.dias_para_vencer > 2);
+
   return (
-    <ul className="space-y-2">
-      {tareas.map((t) => {
-        const atrasada = t.dias_para_vencer < 0;
-        const porVencer = t.dias_para_vencer >= 0 && t.dias_para_vencer <= 2;
-        const color = atrasada ? "#d03b3b" : porVencer ? "#8a6100" : "#0ca30c";
-        const bg = atrasada ? "#fdecec" : porVencer ? "#fdf4e0" : "#e9f7e9";
-        const borde = atrasada ? "#f3c2c2" : porVencer ? "#f2dfae" : "#bfe6bf";
-        const etiquetaFecha = atrasada
-          ? `Venció hace ${Math.abs(t.dias_para_vencer)} día${Math.abs(t.dias_para_vencer) === 1 ? "" : "s"}`
-          : t.dias_para_vencer === 0
-            ? "Vence hoy"
-            : `Vence en ${t.dias_para_vencer} día${t.dias_para_vencer === 1 ? "" : "s"}`;
-        return (
-          <li key={t.id} className="rounded-card border px-4 py-3" style={{ backgroundColor: bg, borderColor: borde }}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[13px] font-medium text-ink">{t.titulo}</p>
-              <span className="text-[11px] font-semibold" style={{ color }}>{etiquetaFecha}</span>
-            </div>
-            {t.descripcion && <p className="mt-1 text-[12px] text-ink-soft">{t.descripcion}</p>}
-            {t.cantidad_requerida != null && (
-              <p className="mt-1 text-[12px] text-ink-muted">
-                Avance: {t.cantidad_actual ?? 0} de {t.cantidad_requerida}
-              </p>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <div className="space-y-4">
+      {criticas.length > 0 && (
+        <ul className="space-y-2">
+          {criticas.map((t) => <ItemTareaMarketing key={t.id} t={t} />)}
+        </ul>
+      )}
+      {conTiempo.length > 0 && (
+        <div>
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+            Con tiempo de sobra
+          </p>
+          <ul className="space-y-2">
+            {conTiempo.map((t) => <ItemTareaMarketing key={t.id} t={t} />)}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
