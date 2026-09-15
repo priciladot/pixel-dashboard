@@ -1523,7 +1523,16 @@ function DisciplinaComercial({
                     )}
                   </td>
                   <td className="px-4 py-2.5"><EstatusBadge estado={s.estatusVolumen} /></td>
-                  <td className="px-4 py-2.5 tabular text-ink-soft">{s.tareasCompletadas}/{s.tareasAsignadas}</td>
+                  <td className="px-4 py-2.5 tabular text-ink-soft">
+                    {s.tareasCompletadas}/{s.tareasAsignadas}
+                    {s.tareasFaltantes.length > 0 && s.tareasFaltantes.length < 5 && (
+                      <ul className="mt-1 space-y-0.5 text-[11px] font-normal text-[#a04a25]">
+                        {s.tareasFaltantes.map((t) => (
+                          <li key={t.hubspot_id}>· {t.asunto ?? "(sin asunto)"}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5"><EstatusBadge estado={s.estatusCrm} /></td>
                   <td className="px-4 py-2.5"><EstatusBadge estado={s.estatusGeneral} /></td>
                 </tr>
