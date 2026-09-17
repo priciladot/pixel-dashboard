@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import {
   kpisDelPeriodo, periodos, periodoActivoDe, resumenArea, vendedores, dealsPorRevisar,
-  tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday,
+  tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday, resumenOperativoMondayHistorico,
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
@@ -65,7 +65,7 @@ export async function TorreDeControl({
   const periodo = lista.find((p) => p.id === periodoId)!;
 
   const [
-    equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday,
+    equipo, area, personas, revisar, tareas, etapasActuales, estancados, perdidas, operativoMonday, operativoMondayHistorico,
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
     actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
     coachAcciones, disciplina, proyeccionPipelineData, estancados10,
@@ -80,6 +80,7 @@ export async function TorreDeControl({
     dealsEstancados(vendedorId, 7),
     motivosPerdida(periodoId, vendedorId),
     resumenOperativoMonday(periodoId, vendedorId),
+    resumenOperativoMondayHistorico(vendedorId),
     accionesPrioritarias(vendedorId, 4),
     ventasConProducto(periodoId, vendedorId),
     alertasHigiene(periodoId, vendedorId, 5),
@@ -501,6 +502,24 @@ export async function TorreDeControl({
             <> {operativoMonday.sinRegistroMonday} negocios ganados del periodo no están en Monday y por lo tanto no aparecen en esta
             tarjeta — quedan como alerta en "Focos rojos de auditoría e higiene", arriba.</>
           )}
+        </p>
+      </Seccion>
+
+      {/* Origen y canal de venta — histórico completo, no solo el periodo elegido arriba */}
+      <Seccion
+        titulo="📊 Origen y canal de venta — histórico"
+        descripcion={
+          seleccionado
+            ? `Tipo de negocio y canal de origen de TODA la trayectoria de ${seleccionado.nombre_corto} en Monday, no solo el periodo elegido arriba.`
+            : "Tipo de negocio y canal de origen de TODO el historial del equipo en Monday, no solo el periodo elegido arriba."
+        }
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <TipoNegocioResumen filas={operativoMondayHistorico.porTipoNegocio} />
+          <CanalesVenta filas={operativoMondayHistorico.porCanal} />
+        </div>
+        <p className="mt-3 text-[11px] text-ink-muted">
+          {operativoMondayHistorico.totalDeals} negocios de Monday clasificados aquí, de todos los periodos.
         </p>
       </Seccion>
 

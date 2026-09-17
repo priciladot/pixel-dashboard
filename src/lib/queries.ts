@@ -825,6 +825,59 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
   };
 }
 
+/**
+ * Igual que resumenOperativoMonday, pero de TODO el historial (todos los
+ * periodos), no solo el periodo elegido en el filtro -- responde "¿de dónde
+ * ha venido el negocio de este vendedor en toda su trayectoria?", no solo
+ * este mes. Misma fuente (v_deals_operativo) y misma regla de clasificación
+ * cartera existente/nuevo, solo sin el .eq("periodo_id", ...).
+ */
+export async function resumenOperativoMondayHistorico(vendedorId?: string): Promise<ResumenOperativoMonday> {
+  const supabase = await createClient();
+  let q = supabase
+    .from("v_deals_operativo")
+    .select("como_llego, monto_atribuido_con_iva, monday_elemento_id, cerrado_ganado");
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.limit(20_000);
+
+  const todas = (data as Array<{
+    como_llego: string | null; monto_atribuido_con_iva: number | null;
+    monday_elemento_id: string | null; cerrado_ganado: boolean | null;
+  }>) ?? [];
+
+  const sinRegistroMonday = todas.filter((r) => r.cerrado_ganado && !r.monday_elemento_id).length;
+  const filas = todas.filter((r) => r.monday_elemento_id);
+
+  const porTipoMapa = new Map<string, { deals: number; monto: number }>();
+  const porCanalMapa = new Map<string, { deals: number; monto: number }>();
+
+  for (const r of filas) {
+    const tipo = r.como_llego
+      ? (CANALES_CARTERA_EXISTENTE.has(r.como_llego.trim().toLowerCase()) ? "existente" : "nuevo")
+      : "sin_canal";
+    const t = porTipoMapa.get(tipo) ?? { deals: 0, monto: 0 };
+    t.deals += 1;
+    t.monto += r.monto_atribuido_con_iva ?? 0;
+    porTipoMapa.set(tipo, t);
+
+    if (r.como_llego) {
+      const c = porCanalMapa.get(r.como_llego) ?? { deals: 0, monto: 0 };
+      c.deals += 1;
+      c.monto += r.monto_atribuido_con_iva ?? 0;
+      porCanalMapa.set(r.como_llego, c);
+    }
+  }
+
+  return {
+    porTipoNegocio: [...porTipoMapa.entries()].map(([tipo, v]) => ({ tipo, deals: v.deals, monto_con_iva: v.monto })),
+    porCanal: [...porCanalMapa.entries()]
+      .map(([canal, v]) => ({ canal, deals: v.deals, monto_con_iva: v.monto }))
+      .sort((a, b) => b.monto_con_iva - a.monto_con_iva),
+    sinRegistroMonday,
+    totalDeals: filas.length,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Alertas de higiene y auditoría comercial (HubSpot vs. Monday)        */
 /* ------------------------------------------------------------------ */
