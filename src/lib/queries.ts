@@ -711,6 +711,44 @@ export async function motivosPerdida(periodoId: string, vendedorId?: string): Pr
     .sort((a, b) => b.deals - a.deals);
 }
 
+/**
+ * Acelerador Semanal (anuncio de dirección, 2026-09-17): $3,000 por
+ * persona por semana a quien cierre 4 negocios ganados en esa semana
+ * específica -- semanas de calendario real fijas (17-23 y 24-30 de
+ * septiembre), NO las de periodo_semanas (que arrancan el 15). Solo
+ * corre estas 2 semanas -- fuera de ese rango no hay nada que mostrar.
+ */
+const SEMANAS_ACELERADOR = [
+  { inicio: "2026-09-17", fin: "2026-09-23" },
+  { inicio: "2026-09-24", fin: "2026-09-30" },
+];
+
+export interface AceleradorSemanal {
+  inicio: string;
+  fin: string;
+  ganados: number;
+  meta: number;
+  cumplido: boolean;
+}
+
+export async function progresoAceleradorSemanal(vendedorId: string): Promise<AceleradorSemanal | null> {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const semanaActual = SEMANAS_ACELERADOR.find((s) => hoy >= s.inicio && hoy <= s.fin);
+  if (!semanaActual) return null;
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("hubspot_deals")
+    .select("hubspot_id")
+    .eq("vendedor_id", vendedorId)
+    .eq("cerrado_ganado", true)
+    .gte("fecha_cierre", `${semanaActual.inicio}T00:00:00`)
+    .lte("fecha_cierre", `${semanaActual.fin}T23:59:59`);
+
+  const ganados = data?.length ?? 0;
+  return { inicio: semanaActual.inicio, fin: semanaActual.fin, ganados, meta: 4, cumplido: ganados >= 4 };
+}
+
 export interface ResumenOperativoMonday {
   porTipoNegocio: Array<{ tipo: string; deals: number; monto_con_iva: number }>;
   porCanal: Array<{ canal: string; deals: number; monto_con_iva: number }>;

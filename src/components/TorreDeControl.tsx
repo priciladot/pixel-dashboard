@@ -5,8 +5,8 @@ import {
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
-  proyeccionPipeline, pendientesLompiAbiertos, rachaLompiWhatsapp,
-  type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type PendienteLompi,
+  proyeccionPipeline, pendientesLompiAbiertos, rachaLompiWhatsapp, progresoAceleradorSemanal,
+  type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type PendienteLompi, type AceleradorSemanal,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
   type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
@@ -69,7 +69,7 @@ export async function TorreDeControl({
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
     actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
     coachAcciones, disciplina, proyeccionPipelineData, estancados10,
-    pendientesLompi, rachaLompiWa,
+    pendientesLompi, rachaLompiWa, acelerador,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
@@ -98,6 +98,7 @@ export async function TorreDeControl({
     dealsEstancados(vendedorId, 10),
     vendedorId ? pendientesLompiAbiertos(vendedorId) : Promise.resolve([] as PendienteLompi[]),
     vendedorId ? rachaLompiWhatsapp(vendedorId) : Promise.resolve(0),
+    vendedorId ? progresoAceleradorSemanal(vendedorId) : Promise.resolve(null as AceleradorSemanal | null),
   ]);
 
   const filas = vendedorId ? equipo.filter((f) => f.vendedor_id === vendedorId) : equipo;
@@ -177,6 +178,26 @@ export async function TorreDeControl({
       )}
 
       <ActoHeader numero={1} color="#2a78d6" titulo="Diagnóstico y Controles" />
+
+      {seleccionado && acelerador && (
+        <div
+          className="mb-5 rounded-card border px-5 py-4"
+          style={
+            acelerador.cumplido
+              ? { backgroundColor: "#0ca30c1a", borderColor: "#0ca30c40" }
+              : { backgroundColor: "#2a78d614", borderColor: "#2a78d640" }
+          }
+        >
+          <p className="text-[13px] font-semibold text-ink">
+            {acelerador.cumplido ? "✅ ¡Acelerador cumplido!" : "🏆 Acelerador Semanal"} — $3,000 por cerrar 4 negocios ganados esta semana ({formatearRangoFechas(acelerador.inicio, acelerador.fin)})
+          </p>
+          <p className="mt-1 text-[13px] text-ink-soft">
+            {acelerador.cumplido
+              ? `Ya cerraste ${acelerador.ganados} negocios ganados esta semana -- el premio es tuyo.`
+              : `Llevas ${acelerador.ganados} de ${acelerador.meta} negocios ganados esta semana. Corre en paralelo a tu meta mensual, no importa si ya la alcanzaste o vas lejos de ella.`}
+          </p>
+        </div>
+      )}
 
       {/* Resumen ejecutivo -------------------------------------------------- */}
       <Seccion
