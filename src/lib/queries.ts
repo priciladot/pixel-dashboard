@@ -2377,7 +2377,7 @@ export async function tareasMarketing(vendedorId?: string): Promise<TareaMarketi
 export interface NotaGestion {
   id: number;
   vendedor_id: string;
-  tipo: "llamada_atencion" | "reconocimiento";
+  tipo: "llamada_atencion" | "reconocimiento" | "recordatorio";
   titulo: string;
   detalle: string | null;
   creado_en: string;

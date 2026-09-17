@@ -199,15 +199,17 @@ function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
   return (
     <ul className="space-y-2">
       {notas.map((n) => {
-        const esLlamadaAtencion = n.tipo === "llamada_atencion";
-        const color = esLlamadaAtencion ? "#d03b3b" : "#0ca30c";
-        const bg = esLlamadaAtencion ? "#fdecec" : "#e9f7e9";
-        const borde = esLlamadaAtencion ? "#f3c2c2" : "#bfe6bf";
+        const ESTILO_NOTA = {
+          llamada_atencion: { color: "#d03b3b", bg: "#fdecec", borde: "#f3c2c2", etiqueta: "⚠️ Llamada de atención" },
+          reconocimiento: { color: "#0ca30c", bg: "#e9f7e9", borde: "#bfe6bf", etiqueta: "✅ Reconocimiento" },
+          recordatorio: { color: "#2a78d6", bg: "#2a78d614", borde: "#2a78d640", etiqueta: "💡 Recordatorio" },
+        } as const;
+        const { color, bg, borde, etiqueta } = ESTILO_NOTA[n.tipo];
         return (
           <li key={n.id} className="rounded-card border px-4 py-3" style={{ backgroundColor: bg, borderColor: borde }}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[13px] font-medium text-ink">
-                <span style={{ color }}>{esLlamadaAtencion ? "⚠️ Llamada de atención" : "✅ Reconocimiento"}</span>
+                <span style={{ color }}>{etiqueta}</span>
                 {" — "}{n.titulo}
               </p>
               <span className="text-[11px] text-ink-muted">{FORMATO_FECHA_NOTA.format(new Date(n.creado_en))}</span>
