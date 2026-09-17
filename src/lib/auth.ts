@@ -55,3 +55,19 @@ export async function registrarAcceso(accion: string, recurso?: string) {
   if (!user) return;
   await supabase.from("accesos_log").insert({ usuario_id: user.id, accion, recurso });
 }
+
+/**
+ * Marca el día de hoy como "activo" para esta persona -- máximo una fila
+ * por (persona, día), sin importar cuántas páginas visite o recargue.
+ * Se llama desde el layout autenticado, en cada carga de página; el
+ * upsert con ignoreDuplicates hace que las siguientes cargas del mismo
+ * día sean prácticamente gratis (no hay UPDATE, solo un INSERT que se
+ * descarta por el conflicto de llave primaria).
+ */
+export async function registrarDiaActivo(usuarioId: string): Promise<void> {
+  const supabase = await createClient();
+  const hoy = new Date().toISOString().slice(0, 10);
+  await supabase
+    .from("accesos_diarios")
+    .upsert({ vendedor_id: usuarioId, fecha: hoy }, { onConflict: "vendedor_id,fecha", ignoreDuplicates: true });
+}
