@@ -861,7 +861,7 @@ function MotivosPerdidaLista({ filas }: { filas: MotivoPerdida[] }) {
                 {f.deals} · {dinero(f.monto_sin_iva)} sin IVA
               </span>
             </div>
-            {f.detalle.length > 1 && (
+            {f.detalle.length > 0 && (
               <ul className="mt-1.5 ml-4 space-y-1 border-l border-line pl-3">
                 {f.detalle.map((d) => (
                   <li key={d.motivo} className="flex items-center gap-3 text-[11px] text-ink-soft">
