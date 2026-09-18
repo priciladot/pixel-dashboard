@@ -349,9 +349,9 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
         </div>
         <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
           <p><span className="font-medium text-ink-soft">MQL:</span> suma de "MQL" del tablero "Registro de KPIs - Marketing", todas las semanas del mes.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> usa la cuota semanal auto-reportada (referencia de arriba) del mes ÷ MQL del mes × 100 -- meta ≥20%.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> "Llegaron a negocio nuevo" del KPI1 de arriba (el número real, no la cuota auto-reportada) ÷ MQL del mes × 100 -- meta ≥20%.</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">Gasto de plataformas:</span> suma de TODO lo invertido ese mes en las 4 plataformas (Ads/Google + Meta + TikTok + Pinterest) -- captura manual, no viene de ninguna API.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto de plataformas (las 4 sumadas) ÷ leads calificados reportados del mes.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto de plataformas (las 4 sumadas) ÷ "Llegaron a negocio nuevo" del mes (el número real del KPI1).</p>
         </div>
       </Card>
 

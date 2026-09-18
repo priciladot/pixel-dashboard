@@ -2612,6 +2612,8 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
     const mql = kpis
       .filter((k) => k.nombre_kpi === "MQL" && k.mes === mesTexto)
       .reduce((acc, k) => acc + (k.resultado ?? 0), 0);
+    const calificacion = calificacionPorPeriodo.get(periodoId) ?? null;
+    const calificadosReal = calificacion?.calificados ?? null;
 
     // "Gasto real ads" de este KPI es TODO lo invertido ese mes (Ads/Google +
     // Meta + TikTok + Pinterest sumados) -- no solo Google. marketing_gasto_ads
@@ -2622,7 +2624,10 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       .filter((g) => g.periodo_id === periodoId)
       .reduce((acc, g) => acc + (g.gasto ?? 0), 0);
     const presupuesto = gastoAgregado.get(periodoId)?.presupuesto ?? null;
-    const cpl = gastoTotalPlataformas > 0 && leadsCalificados > 0 ? gastoTotalPlataformas / leadsCalificados : null;
+    // CPL y Conversión usan el % REAL de Leads Calificados (KPI1, cruzado con
+    // HubSpot) -- no la cuota semanal auto-reportada, que resultó ser un
+    // número distinto y sin el mismo respaldo (ver KPI1 más arriba).
+    const cpl = gastoTotalPlataformas > 0 && calificadosReal && calificadosReal > 0 ? gastoTotalPlataformas / calificadosReal : null;
 
     const ventasPorPlataforma = new Map<string, number>();
     for (const d of deals) {
@@ -2644,17 +2649,15 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       };
     });
 
-    const calificacion = calificacionPorPeriodo.get(periodoId) ?? null;
-
     return {
       periodoId,
       mes: mesTexto,
       leadsCalificados,
       totalLeads: calificacion?.total_leads ?? null,
-      leadsCalificadosReal: calificacion?.calificados ?? null,
+      leadsCalificadosReal: calificadosReal,
       pctCalificados: calificacion && calificacion.total_leads > 0 ? (calificacion.calificados / calificacion.total_leads) * 100 : null,
       mql,
-      conversionMqlSql: mql > 0 ? (leadsCalificados / mql) * 100 : null,
+      conversionMqlSql: mql > 0 && calificadosReal != null ? (calificadosReal / mql) * 100 : null,
       presupuestoAds: presupuesto,
       gastoAdsReal: gastoTotalPlataformas > 0 ? gastoTotalPlataformas : null,
       cpl,
