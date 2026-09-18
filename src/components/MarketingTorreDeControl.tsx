@@ -151,46 +151,35 @@ export async function MarketingTorreDeControl({
         <TareasMarketingLista tareas={tareas} />
       </Seccion>
 
-      {/* El sistema semanal individual (1 KPI = 1 fila en Monday) es para
-          quien hace el trabajo operativo -- para la lead (Dana) queda un
-          solo KPI colgando ahí (el CTR global de la cuenta) y verlo como
-          "Racha"/"Histórico" da una foto falsa de su desempeño, que en
-          realidad se mide con los 5 KPIs de Gerente de arriba. Se oculta
-          solo para marketing_lead; Xuan/Santiago/Melissa/Alan lo siguen
-          viendo igual, con sus varios KPIs reales. */}
-      {persona?.rol !== "marketing_lead" && (
-        <>
-          <Seccion
-            titulo="KPIs de esta semana"
-            descripcion={
-              semanaActual.semana != null
-                ? `Semana ${semanaActual.semana} de ${periodo.etiqueta} -- la última que el equipo ya capturó en Monday.`
-                : "Sin semana capturada todavía para este mes."
-            }
-          >
-            <TablaKpisSemana kpis={semanaActual.kpis} />
-          </Seccion>
+      <Seccion
+        titulo="KPIs de esta semana"
+        descripcion={
+          semanaActual.semana != null
+            ? `Semana ${semanaActual.semana} de ${periodo.etiqueta} -- la última que el equipo ya capturó en Monday.`
+            : "Sin semana capturada todavía para este mes."
+        }
+      >
+        <TablaKpisSemana kpis={semanaActual.kpis} />
+      </Seccion>
 
-          <Seccion titulo="🎯 Coach de Marketing" descripcion="Diagnóstico de la semana vigente y qué hacer para mejorar cada métrica en riesgo.">
-            <CoachMarketing acciones={coach} />
-          </Seccion>
+      <Seccion titulo="🎯 Coach de Marketing" descripcion="Diagnóstico de la semana vigente y qué hacer para mejorar cada métrica en riesgo.">
+        <CoachMarketing acciones={coach} />
+      </Seccion>
 
-          {disciplina && (
-            <Seccion titulo="📊 Ritmo semanal (S1-S4)" descripcion="Semáforo general por semana del mes -- Cumplido si todo estuvo en verde.">
-              <DisciplinaMarketingTabla disciplina={disciplina} />
-            </Seccion>
-          )}
+      {disciplina && (
+        <Seccion titulo="📊 Ritmo semanal (S1-S4)" descripcion="Semáforo general por semana del mes -- Cumplido si todo estuvo en verde.">
+          <DisciplinaMarketingTabla disciplina={disciplina} />
+        </Seccion>
+      )}
 
-          <Seccion titulo="📅 Histórico (últimos 3 meses)" descripcion="Total de KPIs verde/amarillo/rojo de cada mes, sin tener que cambiar el selector uno por uno.">
-            <HistorialMarketingTabla historial={historial} />
-          </Seccion>
+      <Seccion titulo="📅 Histórico (últimos 3 meses)" descripcion="Total de KPIs verde/amarillo/rojo de cada mes, sin tener que cambiar el selector uno por uno.">
+        <HistorialMarketingTabla historial={historial} />
+      </Seccion>
 
-          {metricasCanal.length > 0 && (
-            <Seccion titulo="📡 Métricas por canal" descripcion="Alcance/Interacción/CTR de los tableros de canal con datos por persona -- última semana capturada.">
-              <MetricasCanalTabla metricas={metricasCanal} />
-            </Seccion>
-          )}
-        </>
+      {metricasCanal.length > 0 && (
+        <Seccion titulo="📡 Métricas por canal" descripcion="Alcance/Interacción/CTR de los tableros de canal con datos por persona -- última semana capturada.">
+          <MetricasCanalTabla metricas={metricasCanal} />
+        </Seccion>
       )}
     </>
   );
