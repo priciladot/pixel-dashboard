@@ -2487,14 +2487,19 @@ const PLATAFORMAS_ROAS = ["google", "meta", "tiktok", "pinterest"] as const;
 /**
  * "¿Cómo llegó?" de Monday es texto libre capturado por los vendedores al
  * cerrar -- no hay una columna de "plataforma de ads". Se mapea lo que
- * confirmó Dana: "Ads"/"Adds" (typo repetido en el tablero) = Google Ads,
- * "Facebook" + "Instagram" = Meta. No hay ninguna fila de "Pinterest" ni
- * "TikTok" en como_llego todavía -- su ROAS sale en 0 hasta que exista un
- * cierre atribuido a esa plataforma.
+ * confirmó Pris: "Ads"/"Adds" (typo repetido en el tablero) -- y también
+ * "Llamada"/"Llamadas" y "Formulario", que son resultado de esas mismas
+ * campañas -- van a la fila "Ads" (etiqueta de la plataforma "google" en
+ * PLATAFORMAS_ROAS); "Facebook" + "Instagram" = Meta. No hay ninguna fila
+ * de "Pinterest" ni "TikTok" en como_llego todavía -- su ROAS sale en 0
+ * hasta que exista un cierre atribuido a esa plataforma.
  */
 const CANAL_A_PLATAFORMA: Record<string, (typeof PLATAFORMAS_ROAS)[number]> = {
   ads: "google",
   adds: "google",
+  llamada: "google",
+  llamadas: "google",
+  formulario: "google",
   facebook: "meta",
   instagram: "meta",
 };
