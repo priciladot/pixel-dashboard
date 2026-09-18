@@ -2517,6 +2517,7 @@ export interface KpiGerenteMes {
   mes: string;
   leadsCalificados: number;
   totalLeads: number | null;
+  leadsCalificadosReal: number | null;
   pctCalificados: number | null;
   mql: number;
   conversionMqlSql: number | null;
@@ -2650,6 +2651,7 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       mes: mesTexto,
       leadsCalificados,
       totalLeads: calificacion?.total_leads ?? null,
+      leadsCalificadosReal: calificacion?.calificados ?? null,
       pctCalificados: calificacion && calificacion.total_leads > 0 ? (calificacion.calificados / calificacion.total_leads) * 100 : null,
       mql,
       conversionMqlSql: mql > 0 ? (leadsCalificados / mql) * 100 : null,

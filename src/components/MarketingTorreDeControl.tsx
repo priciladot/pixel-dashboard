@@ -279,7 +279,7 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
                     <td className="px-4 py-2.5 font-medium text-ink">{m.mes}</td>
                     <td className="px-4 py-2.5 tabular text-ink-soft">{m.leadsCalificados}</td>
                     <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.pctCalificados == null ? undefined : cumpleCalificados ? "#0ca30c" : "#d03b3b" }}>
-                      {m.pctCalificados == null ? "Sin dato" : `${m.pctCalificados.toFixed(1)}% (${m.leadsCalificados} de ${m.totalLeads})`}
+                      {m.pctCalificados == null ? "Sin dato" : `${m.pctCalificados.toFixed(1)}% (${m.leadsCalificadosReal} de ${m.totalLeads})`}
                     </td>
                     <td className="px-4 py-2.5 tabular text-ink-soft">{m.mql || "—"}</td>
                     <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.conversionMqlSql == null ? undefined : cumpleConversion ? "#0ca30c" : "#d03b3b" }}>
