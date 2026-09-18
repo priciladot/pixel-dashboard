@@ -292,8 +292,8 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
           <p><span className="font-medium text-ink-soft">Leads calificados (SQL):</span> suma de "Leads calificados generados" del tablero de Monday "Registro de KPIs - Marketing" -- se suman TODAS las semanas capturadas de ese mes, de TODO el equipo de Marketing (no es un promedio ni el dato de una sola persona).</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">MQL:</span> mismo tablero y mismo criterio (suma de todas las semanas del mes), fila "MQL".</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> Leads calificados del mes ÷ MQL del mes × 100. Meta del perfil de Gerente: ≥20% (verde) / por debajo (rojo).</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">Gasto real ads:</span> el gasto real en ads que Dana dictó para ese mes -- no viene de ninguna API, es captura manual.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto real ads ÷ Leads calificados del mes. Ej. Julio: $17,385 ÷ 60 leads = $290 por lead.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Gasto real ads:</span> suma de TODO lo invertido ese mes en las 4 plataformas (Ads/Google + Meta + TikTok + Pinterest) -- captura manual, no viene de ninguna API.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto real ads (las 4 plataformas sumadas) ÷ Leads calificados del mes.</p>
         </div>
       </Card>
 

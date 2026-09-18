@@ -2569,8 +2569,16 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       .filter((k) => k.nombre_kpi === "MQL" && k.mes === mesTexto)
       .reduce((acc, k) => acc + (k.resultado ?? 0), 0);
 
-    const gasto = gastoAgregado.get(periodoId) ?? null;
-    const cpl = gasto && leadsCalificados > 0 ? gasto.gasto_real / leadsCalificados : null;
+    // "Gasto real ads" de este KPI es TODO lo invertido ese mes (Ads/Google +
+    // Meta + TikTok + Pinterest sumados) -- no solo Google. marketing_gasto_ads
+    // (gastoAgregado) resultó ser, en la práctica, siempre el mismo número que
+    // el de la plataforma "google" -- Pris lo confirmó como el gasto real de
+    // Ads específicamente, no un agregado real de todas las plataformas.
+    const gastoTotalPlataformas = gastoPlataforma
+      .filter((g) => g.periodo_id === periodoId)
+      .reduce((acc, g) => acc + (g.gasto ?? 0), 0);
+    const presupuesto = gastoAgregado.get(periodoId)?.presupuesto ?? null;
+    const cpl = gastoTotalPlataformas > 0 && leadsCalificados > 0 ? gastoTotalPlataformas / leadsCalificados : null;
 
     const ventasPorPlataforma = new Map<string, number>();
     for (const d of deals) {
@@ -2598,8 +2606,8 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       leadsCalificados,
       mql,
       conversionMqlSql: mql > 0 ? (leadsCalificados / mql) * 100 : null,
-      presupuestoAds: gasto?.presupuesto ?? null,
-      gastoAdsReal: gasto?.gasto_real ?? null,
+      presupuestoAds: presupuesto,
+      gastoAdsReal: gastoTotalPlataformas > 0 ? gastoTotalPlataformas : null,
       cpl,
       plataformas,
     };
