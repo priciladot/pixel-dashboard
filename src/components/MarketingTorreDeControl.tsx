@@ -356,6 +356,15 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
   );
 }
 
+/** Tácticas genéricas por red cuando NO hubo crecimiento (0% o negativo) contra la toma anterior. */
+const TACTICAS_CRECIMIENTO_RED: Record<string, string> = {
+  instagram: "Publicar con más frecuencia (Reels/Carruseles suelen dar más alcance que fotos sueltas), colaborar con cuentas aliadas para exposición cruzada, y usar pauta de descubrimiento para llegar a audiencias nuevas -- no solo a los que ya te siguen.",
+  facebook: "Revisar horarios de publicación contra cuándo está activa tu audiencia, impulsar el contenido con mejor desempeño orgánico con un poco de pauta, y promover la página en las publicaciones de Instagram para cruzar audiencias.",
+  pinterest: "Pinterest premia la frecuencia -- subir Pines nuevos de forma constante (no solo reciclar contenido de otras redes), usar palabras clave reales en título y descripción de cada Pin, y crear tableros temáticos organizados por producto/servicio.",
+  tiktok: "Publicar con mayor frecuencia y participar en tendencias/sonidos vigentes, usar los primeros 2 segundos del video para enganchar antes del scroll, y revisar qué formato (tutorial, detrás de cámaras, etc.) retuvo más a la audiencia.",
+  youtube: "Optimizar título/miniatura de los videos existentes para mejorar el CTR, mantener una cadencia de subida constante, y usar Shorts para atraer audiencia nueva hacia el canal.",
+};
+
 /** Seguidores por red, con el cambio vs. la toma anterior de esa misma red. */
 function TablaSeguidores({ seguidores }: { seguidores: PanelGerenteMarketing["seguidores"] }) {
   if (seguidores.length === 0) {
@@ -365,37 +374,69 @@ function TablaSeguidores({ seguidores }: { seguidores: PanelGerenteMarketing["se
   const porRed = new Map<string, typeof seguidores>();
   for (const s of seguidores) porRed.set(s.red, [...(porRed.get(s.red) ?? []), s]);
 
+  const sinCrecimiento: Array<{ red: string; cambio: number }> = [];
+  for (const [red, filas] of porRed) {
+    if (filas.length < 2) continue;
+    const anterior = filas[filas.length - 2].seguidores;
+    const actual = filas[filas.length - 1].seguidores;
+    const cambio = anterior > 0 ? ((actual - anterior) / anterior) * 100 : 0;
+    if (cambio <= 0) sinCrecimiento.push({ red, cambio });
+  }
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[560px] border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
-            <th className="px-4 py-2.5 font-medium">Red</th>
-            <th className="px-4 py-2.5 font-medium">Fecha</th>
-            <th className="px-4 py-2.5 font-medium">Seguidores</th>
-            <th className="px-4 py-2.5 font-medium">Cambio vs. toma anterior</th>
-          </tr>
-        </thead>
-        <tbody>
-          {[...porRed.entries()].flatMap(([red, filas]) =>
-            filas.map((f, i) => {
-              const anterior = i > 0 ? filas[i - 1].seguidores : null;
-              const cambio = anterior != null && anterior > 0 ? ((f.seguidores - anterior) / anterior) * 100 : null;
-              return (
-                <tr key={`${red}-${f.fecha}`} className="border-b border-line/70 last:border-0">
-                  <td className="px-4 py-2.5 text-ink">{i === 0 ? (ETIQUETA_RED[red] ?? red) : ""}</td>
-                  <td className="px-4 py-2.5 text-ink-soft">{new Date(f.fecha).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}</td>
-                  <td className="px-4 py-2.5 tabular text-ink-soft">{f.seguidores.toLocaleString("es-MX")}</td>
-                  <td className="px-4 py-2.5 tabular font-medium" style={{ color: cambio == null ? undefined : cambio > 0 ? "#0ca30c" : cambio < 0 ? "#d03b3b" : "#8a6100" }}>
-                    {cambio == null ? "—" : `${cambio > 0 ? "+" : ""}${cambio.toFixed(1)}%`}
-                  </td>
-                </tr>
-              );
-            }),
-          )}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+              <th className="px-4 py-2.5 font-medium">Red</th>
+              <th className="px-4 py-2.5 font-medium">Fecha</th>
+              <th className="px-4 py-2.5 font-medium">Seguidores</th>
+              <th className="px-4 py-2.5 font-medium">Cambio vs. toma anterior</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...porRed.entries()].flatMap(([red, filas]) =>
+              filas.map((f, i) => {
+                const anterior = i > 0 ? filas[i - 1].seguidores : null;
+                const cambio = anterior != null && anterior > 0 ? ((f.seguidores - anterior) / anterior) * 100 : null;
+                return (
+                  <tr key={`${red}-${f.fecha}`} className="border-b border-line/70 last:border-0">
+                    <td className="px-4 py-2.5 text-ink">{i === 0 ? (ETIQUETA_RED[red] ?? red) : ""}</td>
+                    <td className="px-4 py-2.5 text-ink-soft">{new Date(f.fecha).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}</td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{f.seguidores.toLocaleString("es-MX")}</td>
+                    <td className="px-4 py-2.5 tabular font-medium" style={{ color: cambio == null ? undefined : cambio > 0 ? "#0ca30c" : cambio < 0 ? "#d03b3b" : "#8a6100" }}>
+                      {cambio == null ? "—" : `${cambio > 0 ? "+" : ""}${cambio.toFixed(1)}%`}
+                    </td>
+                  </tr>
+                );
+              }),
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
+        <p><span className="font-medium text-ink-soft">Seguidores:</span> foto que Dana dicta cada vez que la tiene a mano (no hay integración con las APIs de cada red) -- no es un promedio, es el total exacto de ese día.</p>
+        <p className="mt-1"><span className="font-medium text-ink-soft">Cambio vs. toma anterior:</span> % de diferencia contra la captura previa de esa misma red (no contra el mes calendario anterior si no hubo una captura ese mes). La meta del perfil de Gerente es que este número sea positivo mes a mes, en cada red -- 0.0% significa que no hubo NINGÚN crecimiento desde la última vez que se capturó, no es un error de cálculo.</p>
+      </div>
+
+      {sinCrecimiento.length > 0 && (
+        <div className="space-y-2 border-t border-line px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a6100]">Sin crecimiento desde la toma anterior -- qué hacer</p>
+          {sinCrecimiento.map(({ red, cambio }) => (
+            <div key={red} className="rounded-card border px-3 py-2.5" style={{ backgroundColor: "#fdf4e0", borderColor: "#f2dfae" }}>
+              <p className="text-[12px] font-medium text-ink">
+                {ETIQUETA_RED[red] ?? red} — {cambio === 0 ? "0% de cambio (se quedó exactamente igual)" : `${cambio.toFixed(1)}% (bajó)`}
+              </p>
+              <p className="mt-1 text-[12px] text-ink-soft">
+                {TACTICAS_CRECIMIENTO_RED[red] ?? "Revisar qué contenido publicado en el último periodo tuvo mejor alcance/interacción y repetir ese formato con más frecuencia."}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
