@@ -2530,16 +2530,25 @@ export interface SeguidorRed {
   seguidores: number;
 }
 
+export interface CumplimientoPlataforma {
+  plataforma: string;
+  aTiempo: number;
+  atrasado: number;
+  sinResolver: number;
+  pct: number | null;
+}
+
 export interface PanelGerenteMarketing {
   meses: KpiGerenteMes[];
   seguidores: SeguidorRed[];
+  cumplimientoCalendario: Array<{ periodoId: string; mes: string; plataformas: CumplimientoPlataforma[] }>;
 }
 
 /** Panel de los 5 KPIs del perfil de Gerente de Marketing, para los periodos (meses calendario) dados. */
 export async function panelGerenteMarketing(periodoIds: string[]): Promise<PanelGerenteMarketing> {
   const supabase = await createClient();
 
-  const [periodosRes, kpisRes, gastoRes, gastoPlataformaRes, seguidoresRes, dealsRes] = await Promise.all([
+  const [periodosRes, kpisRes, gastoRes, gastoPlataformaRes, seguidoresRes, dealsRes, cumplimientoRes] = await Promise.all([
     supabase.from("periodos").select("id, mes").in("id", periodoIds),
     supabase.from("marketing_kpis").select("nombre_kpi, mes, resultado").in("nombre_kpi", ["Leads calificados generados", "MQL"]),
     supabase.from("marketing_gasto_ads").select("periodo_id, presupuesto, gasto_real").in("periodo_id", periodoIds),
@@ -2547,6 +2556,7 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
     supabase.from("marketing_seguidores").select("red, fecha, seguidores").order("fecha", { ascending: true }),
     supabase.from("v_deals_operativo").select("periodo_id, como_llego, monto_atribuido_con_iva")
       .in("periodo_id", periodoIds).eq("cerrado_ganado", true).not("como_llego", "is", null),
+    supabase.from("marketing_cumplimiento_calendario").select("periodo_id, plataforma, a_tiempo, atrasado, sin_resolver").in("periodo_id", periodoIds),
   ]);
 
   const periodosPorId = new Map((periodosRes.data as Array<{ id: string; mes: number }> ?? []).map((p) => [p.id, p.mes]));
@@ -2613,5 +2623,25 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
     };
   });
 
-  return { meses, seguidores: (seguidoresRes.data as SeguidorRed[]) ?? [] };
+  const cumplimientoFilas = (cumplimientoRes.data as Array<{
+    periodo_id: string; plataforma: string; a_tiempo: number; atrasado: number; sin_resolver: number;
+  }>) ?? [];
+  const cumplimientoCalendario = periodoIds.map((periodoId) => {
+    const mesNum = periodosPorId.get(periodoId);
+    return {
+      periodoId,
+      mes: mesNum ? mesEspanolDe(mesNum) : "",
+      plataformas: cumplimientoFilas
+        .filter((c) => c.periodo_id === periodoId)
+        .map((c) => ({
+          plataforma: c.plataforma,
+          aTiempo: c.a_tiempo,
+          atrasado: c.atrasado,
+          sinResolver: c.sin_resolver,
+          pct: c.a_tiempo + c.atrasado > 0 ? (c.a_tiempo / (c.a_tiempo + c.atrasado)) * 100 : null,
+        })),
+    };
+  });
+
+  return { meses, seguidores: (seguidoresRes.data as SeguidorRed[]) ?? [], cumplimientoCalendario };
 }

@@ -151,35 +151,46 @@ export async function MarketingTorreDeControl({
         <TareasMarketingLista tareas={tareas} />
       </Seccion>
 
-      <Seccion
-        titulo="KPIs de esta semana"
-        descripcion={
-          semanaActual.semana != null
-            ? `Semana ${semanaActual.semana} de ${periodo.etiqueta} -- la última que el equipo ya capturó en Monday.`
-            : "Sin semana capturada todavía para este mes."
-        }
-      >
-        <TablaKpisSemana kpis={semanaActual.kpis} />
-      </Seccion>
+      {/* El sistema semanal individual (1 KPI = 1 fila en Monday) es para
+          quien hace el trabajo operativo -- para la lead (Dana) queda un
+          solo KPI colgando ahí (el CTR global de la cuenta) y verlo como
+          "Racha"/"Histórico" da una foto falsa de su desempeño, que en
+          realidad se mide con los 5 KPIs de Gerente de arriba. Se oculta
+          solo para marketing_lead; Xuan/Santiago/Melissa/Alan lo siguen
+          viendo igual, con sus varios KPIs reales. */}
+      {persona?.rol !== "marketing_lead" && (
+        <>
+          <Seccion
+            titulo="KPIs de esta semana"
+            descripcion={
+              semanaActual.semana != null
+                ? `Semana ${semanaActual.semana} de ${periodo.etiqueta} -- la última que el equipo ya capturó en Monday.`
+                : "Sin semana capturada todavía para este mes."
+            }
+          >
+            <TablaKpisSemana kpis={semanaActual.kpis} />
+          </Seccion>
 
-      <Seccion titulo="🎯 Coach de Marketing" descripcion="Diagnóstico de la semana vigente y qué hacer para mejorar cada métrica en riesgo.">
-        <CoachMarketing acciones={coach} />
-      </Seccion>
+          <Seccion titulo="🎯 Coach de Marketing" descripcion="Diagnóstico de la semana vigente y qué hacer para mejorar cada métrica en riesgo.">
+            <CoachMarketing acciones={coach} />
+          </Seccion>
 
-      {disciplina && (
-        <Seccion titulo="📊 Ritmo semanal (S1-S4)" descripcion="Semáforo general por semana del mes -- Cumplido si todo estuvo en verde.">
-          <DisciplinaMarketingTabla disciplina={disciplina} />
-        </Seccion>
-      )}
+          {disciplina && (
+            <Seccion titulo="📊 Ritmo semanal (S1-S4)" descripcion="Semáforo general por semana del mes -- Cumplido si todo estuvo en verde.">
+              <DisciplinaMarketingTabla disciplina={disciplina} />
+            </Seccion>
+          )}
 
-      <Seccion titulo="📅 Histórico (últimos 3 meses)" descripcion="Total de KPIs verde/amarillo/rojo de cada mes, sin tener que cambiar el selector uno por uno.">
-        <HistorialMarketingTabla historial={historial} />
-      </Seccion>
+          <Seccion titulo="📅 Histórico (últimos 3 meses)" descripcion="Total de KPIs verde/amarillo/rojo de cada mes, sin tener que cambiar el selector uno por uno.">
+            <HistorialMarketingTabla historial={historial} />
+          </Seccion>
 
-      {metricasCanal.length > 0 && (
-        <Seccion titulo="📡 Métricas por canal" descripcion="Alcance/Interacción/CTR de los tableros de canal con datos por persona -- última semana capturada.">
-          <MetricasCanalTabla metricas={metricasCanal} />
-        </Seccion>
+          {metricasCanal.length > 0 && (
+            <Seccion titulo="📡 Métricas por canal" descripcion="Alcance/Interacción/CTR de los tableros de canal con datos por persona -- última semana capturada.">
+              <MetricasCanalTabla metricas={metricasCanal} />
+            </Seccion>
+          )}
+        </>
       )}
     </>
   );
@@ -241,6 +252,15 @@ const ETIQUETA_PLATAFORMA: Record<string, string> = {
   meta: "Meta (Facebook/Instagram)",
   tiktok: "TikTok",
   pinterest: "Pinterest",
+};
+
+const ETIQUETA_PLATAFORMA_CUMPLIMIENTO: Record<string, string> = {
+  facebook: "Facebook",
+  instagram: "Instagram",
+  google: "Google",
+  pinterest: "Pinterest",
+  tiktok: "TikTok",
+  youtube: "YouTube",
 };
 
 const ETIQUETA_RED: Record<string, string> = {
@@ -339,14 +359,50 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
         </div>
       </Card>
 
-      {/* KPI 4: Cumplimiento del calendario -- pendiente de integrar ------ */}
-      <Card className="px-4 py-4">
-        <h3 className="text-[13px] font-semibold text-ink">Cumplimiento del Calendario de Marketing (meta ≥95%)</h3>
-        <p className="mt-1.5 text-[12px] text-ink-soft">
-          Pendiente de integrar -- ya localizamos el tablero de Monday ("✅Campañas MKT", agrupado por Facebook/Instagram/Google/Pinterest/YT,
-          con un estatus de "Listo"/"No se entregó a tiempo" por entregable) pero falta construir la sincronización. En cuanto esté lista, este KPI
-          se calcula solo, sin captura manual.
-        </p>
+      {/* KPI 4: Cumplimiento del calendario -------------------------------- */}
+      <Card className="overflow-hidden">
+        <div className="border-b border-line px-4 py-2.5 text-[12px] font-semibold text-ink">
+          Cumplimiento del Calendario de Marketing — meta ≥95%
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-[13px]">
+            <thead>
+              <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+                <th className="px-4 py-2.5 font-medium">Mes</th>
+                <th className="px-4 py-2.5 font-medium">Plataforma</th>
+                <th className="px-4 py-2.5 font-medium">A tiempo</th>
+                <th className="px-4 py-2.5 font-medium">Atrasado</th>
+                <th className="px-4 py-2.5 font-medium">Sin resolver</th>
+                <th className="px-4 py-2.5 font-medium">% Cumplimiento</th>
+              </tr>
+            </thead>
+            <tbody>
+              {panel.cumplimientoCalendario.flatMap((m) =>
+                m.plataformas.map((p) => {
+                  const cumple = p.pct != null && p.pct >= 95;
+                  return (
+                    <tr key={`${m.periodoId}-${p.plataforma}`} className="border-b border-line/70 last:border-0">
+                      <td className="px-4 py-2.5 text-ink-soft">{m.mes}</td>
+                      <td className="px-4 py-2.5 text-ink">{ETIQUETA_PLATAFORMA_CUMPLIMIENTO[p.plataforma] ?? p.plataforma}</td>
+                      <td className="px-4 py-2.5 tabular text-ink-soft">{p.aTiempo}</td>
+                      <td className="px-4 py-2.5 tabular text-ink-soft">{p.atrasado}</td>
+                      <td className="px-4 py-2.5 tabular text-ink-muted">{p.sinResolver}</td>
+                      <td className="px-4 py-2.5 tabular font-medium" style={{ color: p.pct == null ? undefined : cumple ? "#0ca30c" : "#d03b3b" }}>
+                        {p.pct == null ? "Sin datos suficientes" : `${p.pct.toFixed(1)}%`}
+                      </td>
+                    </tr>
+                  );
+                }),
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
+          <p><span className="font-medium text-ink-soft">Fuente:</span> tablero de Monday "✅Campañas MKT" -- se compara la Fecha Límite de Entrega contra la Fecha y horario de Entrega Final de cada campaña, por plataforma (el grupo del tablero) y por el mes en que Monday la tiene etiquetada.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">A tiempo / Atrasado:</span> campañas que ya tienen fecha de entrega final capturada, comparada contra su fecha límite. <span className="font-medium text-ink-soft">Sin resolver:</span> campañas que todavía no tienen fecha de entrega final en Monday -- no cuentan ni a favor ni en contra del %.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">% Cumplimiento:</span> A tiempo ÷ (A tiempo + Atrasado) × 100. "Sin datos suficientes" = 0 campañas resueltas todavía ese mes/plataforma (ej. Julio, ninguna plataforma tenía fecha de entrega final capturada).</p>
+          <p className="mt-1">Foto jalada una sola vez de Monday (no hay sincronización automática todavía) -- puede no reflejar cambios hechos en el tablero después del 18 de septiembre de 2026.</p>
+        </div>
       </Card>
 
       {/* KPI 5: Crecimiento de Ecosistema Digital ------------------------- */}
