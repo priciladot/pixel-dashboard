@@ -128,6 +128,16 @@ export async function MarketingTorreDeControl({
         </div>
       )}
 
+      {/* Primero el contexto cualitativo (notas), luego los pendientes y los
+          números -- para que quien entra al perfil primero entienda la
+          historia (reconocimientos/llamadas de atención) antes de ver el
+          detalle de KPIs. */}
+      {notas.length > 0 && (
+        <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
+          <NotasGestionLista notas={notas} />
+        </Seccion>
+      )}
+
       {panelGerente && (
         <Seccion
           titulo="🧭 Perfil de Gerente de Marketing — KPIs de área"
@@ -140,12 +150,6 @@ export async function MarketingTorreDeControl({
       <Seccion titulo="📋 Pendientes y tareas" descripcion="Entregables asignados por dirección/lead de Marketing -- cuotas mensuales o tareas puntuales, con fecha límite.">
         <TareasMarketingLista tareas={tareas} />
       </Seccion>
-
-      {notas.length > 0 && (
-        <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
-          <NotasGestionLista notas={notas} />
-        </Seccion>
-      )}
 
       <Seccion
         titulo="KPIs de esta semana"
