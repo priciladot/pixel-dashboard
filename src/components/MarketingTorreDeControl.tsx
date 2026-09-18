@@ -335,9 +335,9 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
                 return (
                   <tr key={m.periodoId} className="border-b border-line/70 last:border-0">
                     <td className="px-4 py-2.5 font-medium text-ink">{m.mes}</td>
-                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.mql || "—"}</td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.mqlReal ?? "Sin dato"}</td>
                     <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.conversionMqlSql == null ? undefined : cumpleConversion ? "#0ca30c" : "#d03b3b" }}>
-                      {m.conversionMqlSql == null ? "Sin MQL capturado" : `${m.conversionMqlSql.toFixed(1)}%`}
+                      {m.conversionMqlSql == null ? "Sin dato" : `${m.conversionMqlSql.toFixed(1)}%`}
                     </td>
                     <td className="px-4 py-2.5 tabular text-ink-soft">{m.gastoAdsReal != null ? dinero(m.gastoAdsReal) : "—"}</td>
                     <td className="px-4 py-2.5 tabular text-ink-soft">{m.cpl != null ? dinero(m.cpl) : "—"}</td>
@@ -348,8 +348,8 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
           </table>
         </div>
         <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
-          <p><span className="font-medium text-ink-soft">MQL:</span> suma de "MQL" del tablero "Registro de KPIs - Marketing", todas las semanas del mes.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> "Llegaron a negocio nuevo" del KPI1 de arriba (el número real, no la cuota auto-reportada) ÷ MQL del mes × 100 -- meta ≥20%.</p>
+          <p><span className="font-medium text-ink-soft">MQL:</span> del mismo tablero de Monday "🏵️Leads" que el KPI1 -- leads con Estatus Lead = "MQL" ese mes. Ya no es la cuota semanal auto-reportada (esa queda como referencia arriba).</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> "Llegaron a negocio nuevo" del KPI1 ÷ MQL del mes × 100 -- meta ≥20%. Puede pasar de 100%: "calificados" cuenta negocios CREADOS ese mes, y algunos vienen de leads que entraron como MQL en un mes distinto (el estatus de un lead cambia con el tiempo, no queda fijo al mes en que llegó).</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">Gasto de plataformas:</span> suma de TODO lo invertido ese mes en las 4 plataformas (Ads/Google + Meta + TikTok + Pinterest) -- captura manual, no viene de ninguna API.</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto de plataformas (las 4 sumadas) ÷ "Llegaron a negocio nuevo" del mes (el número real del KPI1).</p>
         </div>

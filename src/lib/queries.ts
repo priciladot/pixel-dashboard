@@ -2520,6 +2520,7 @@ export interface KpiGerenteMes {
   leadsCalificadosReal: number | null;
   pctCalificados: number | null;
   mql: number;
+  mqlReal: number | null;
   conversionMqlSql: number | null;
   presupuestoAds: number | null;
   gastoAdsReal: number | null;
@@ -2585,11 +2586,11 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       .in("periodo_id", periodoIds).eq("cerrado_ganado", true).not("como_llego", "is", null),
     supabase.from("marketing_kpis").select("nombre_kpi, mes, resultado, meta")
       .in("nombre_kpi", FUENTES_CUMPLIMIENTO.map((f) => f.nombreKpi)),
-    supabase.from("marketing_calificacion_leads").select("periodo_id, total_leads, calificados").in("periodo_id", periodoIds),
+    supabase.from("marketing_calificacion_leads").select("periodo_id, total_leads, calificados, mql").in("periodo_id", periodoIds),
   ]);
 
   const calificacionPorPeriodo = new Map(
-    (calificacionRes.data as Array<{ periodo_id: string; total_leads: number; calificados: number }> ?? [])
+    (calificacionRes.data as Array<{ periodo_id: string; total_leads: number; calificados: number; mql: number | null }> ?? [])
       .map((c) => [c.periodo_id, c]),
   );
 
@@ -2614,6 +2615,7 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       .reduce((acc, k) => acc + (k.resultado ?? 0), 0);
     const calificacion = calificacionPorPeriodo.get(periodoId) ?? null;
     const calificadosReal = calificacion?.calificados ?? null;
+    const mqlReal = calificacion?.mql ?? null;
 
     // "Gasto real ads" de este KPI es TODO lo invertido ese mes (Ads/Google +
     // Meta + TikTok + Pinterest sumados) -- no solo Google. marketing_gasto_ads
@@ -2657,7 +2659,8 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       leadsCalificadosReal: calificadosReal,
       pctCalificados: calificacion && calificacion.total_leads > 0 ? (calificacion.calificados / calificacion.total_leads) * 100 : null,
       mql,
-      conversionMqlSql: mql > 0 && calificadosReal != null ? (calificadosReal / mql) * 100 : null,
+      mqlReal,
+      conversionMqlSql: mqlReal != null && mqlReal > 0 && calificadosReal != null ? (calificadosReal / mqlReal) * 100 : null,
       presupuestoAds: presupuesto,
       gastoAdsReal: gastoTotalPlataformas > 0 ? gastoTotalPlataformas : null,
       cpl,
