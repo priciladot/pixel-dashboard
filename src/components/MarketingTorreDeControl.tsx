@@ -263,6 +263,7 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Mes</th>
                 <th className="px-4 py-2.5 font-medium">Leads calificados (SQL)</th>
+                <th className="px-4 py-2.5 font-medium">% Calificados (meta ≥80%)</th>
                 <th className="px-4 py-2.5 font-medium">MQL</th>
                 <th className="px-4 py-2.5 font-medium">Conversión MQL→SQL (meta ≥20%)</th>
                 <th className="px-4 py-2.5 font-medium">Gasto de plataformas</th>
@@ -272,10 +273,14 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
             <tbody>
               {panel.meses.map((m) => {
                 const cumpleConversion = m.conversionMqlSql != null && m.conversionMqlSql >= 20;
+                const cumpleCalificados = m.pctCalificados != null && m.pctCalificados >= 80;
                 return (
                   <tr key={m.periodoId} className="border-b border-line/70 last:border-0">
                     <td className="px-4 py-2.5 font-medium text-ink">{m.mes}</td>
                     <td className="px-4 py-2.5 tabular text-ink-soft">{m.leadsCalificados}</td>
+                    <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.pctCalificados == null ? undefined : cumpleCalificados ? "#0ca30c" : "#d03b3b" }}>
+                      {m.pctCalificados == null ? "Sin dato" : `${m.pctCalificados.toFixed(1)}% (${m.leadsCalificados} de ${m.totalLeads})`}
+                    </td>
                     <td className="px-4 py-2.5 tabular text-ink-soft">{m.mql || "—"}</td>
                     <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.conversionMqlSql == null ? undefined : cumpleConversion ? "#0ca30c" : "#d03b3b" }}>
                       {m.conversionMqlSql == null ? "Sin MQL capturado" : `${m.conversionMqlSql.toFixed(1)}%`}
@@ -290,6 +295,7 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
         </div>
         <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
           <p><span className="font-medium text-ink-soft">Leads calificados (SQL):</span> suma de "Leads calificados generados" del tablero de Monday "Registro de KPIs - Marketing" -- se suman TODAS las semanas capturadas de ese mes, de TODO el equipo de Marketing (no es un promedio ni el dato de una sola persona).</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">% Calificados:</span> del tablero de Monday "🏵️Leads" -- leads marcados SQL o Venta ÷ total de leads del mes × 100. Meta del perfil de Gerente: ≥80%. Es un dato DISTINTO al conteo de la izquierda (ese es semanal sin total contra el que comparar; este sí tiene el % real).</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">MQL:</span> mismo tablero y mismo criterio (suma de todas las semanas del mes), fila "MQL".</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> Leads calificados del mes ÷ MQL del mes × 100. Meta del perfil de Gerente: ≥20% (verde) / por debajo (rojo).</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">Gasto de plataformas:</span> suma de TODO lo invertido ese mes en las 4 plataformas (Ads/Google + Meta + TikTok + Pinterest) -- captura manual, no viene de ninguna API.</p>

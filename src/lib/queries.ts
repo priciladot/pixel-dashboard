@@ -2516,6 +2516,8 @@ export interface KpiGerenteMes {
   periodoId: string;
   mes: string;
   leadsCalificados: number;
+  totalLeads: number | null;
+  pctCalificados: number | null;
   mql: number;
   conversionMqlSql: number | null;
   presupuestoAds: number | null;
@@ -2572,7 +2574,7 @@ const PENDIENTES_CUMPLIMIENTO = ["Alan"]; // sin KPI de cumplimiento definido to
 export async function panelGerenteMarketing(periodoIds: string[]): Promise<PanelGerenteMarketing> {
   const supabase = await createClient();
 
-  const [periodosRes, kpisRes, gastoRes, gastoPlataformaRes, seguidoresRes, dealsRes, cumplimientoKpisRes] = await Promise.all([
+  const [periodosRes, kpisRes, gastoRes, gastoPlataformaRes, seguidoresRes, dealsRes, cumplimientoKpisRes, calificacionRes] = await Promise.all([
     supabase.from("periodos").select("id, mes").in("id", periodoIds),
     supabase.from("marketing_kpis").select("nombre_kpi, mes, resultado").in("nombre_kpi", ["Leads calificados generados", "MQL"]),
     supabase.from("marketing_gasto_ads").select("periodo_id, presupuesto, gasto_real").in("periodo_id", periodoIds),
@@ -2582,7 +2584,13 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       .in("periodo_id", periodoIds).eq("cerrado_ganado", true).not("como_llego", "is", null),
     supabase.from("marketing_kpis").select("nombre_kpi, mes, resultado, meta")
       .in("nombre_kpi", FUENTES_CUMPLIMIENTO.map((f) => f.nombreKpi)),
+    supabase.from("marketing_calificacion_leads").select("periodo_id, total_leads, calificados").in("periodo_id", periodoIds),
   ]);
+
+  const calificacionPorPeriodo = new Map(
+    (calificacionRes.data as Array<{ periodo_id: string; total_leads: number; calificados: number }> ?? [])
+      .map((c) => [c.periodo_id, c]),
+  );
 
   const periodosPorId = new Map((periodosRes.data as Array<{ id: string; mes: number }> ?? []).map((p) => [p.id, p.mes]));
   const kpis = (kpisRes.data as Array<{ nombre_kpi: string; mes: string; resultado: number | null }>) ?? [];
@@ -2635,10 +2643,14 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
       };
     });
 
+    const calificacion = calificacionPorPeriodo.get(periodoId) ?? null;
+
     return {
       periodoId,
       mes: mesTexto,
       leadsCalificados,
+      totalLeads: calificacion?.total_leads ?? null,
+      pctCalificados: calificacion && calificacion.total_leads > 0 ? (calificacion.calificados / calificacion.total_leads) * 100 : null,
       mql,
       conversionMqlSql: mql > 0 ? (leadsCalificados / mql) * 100 : null,
       presupuestoAds: presupuesto,
