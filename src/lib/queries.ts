@@ -2474,3 +2474,131 @@ export async function notasGestionMarketing(vendedorId?: string): Promise<NotaGe
   const { data } = await q.order("creado_en", { ascending: false });
   return (data as NotaGestion[]) ?? [];
 }
+
+/* ------------------------------------------------------------------ */
+/* Panel de Gerente de Marketing (Dana) -- 5 KPIs del "Perfil vigente   */
+/* de Gerente de Marketing": Leads Calificados, CPL/Conversión, ROAS,  */
+/* Cumplimiento del Calendario (pendiente de integrar) y Crecimiento   */
+/* de Ecosistema Digital. Área/mes, no por persona.                    */
+/* ------------------------------------------------------------------ */
+
+const PLATAFORMAS_ROAS = ["google", "meta", "tiktok", "pinterest"] as const;
+
+/**
+ * "¿Cómo llegó?" de Monday es texto libre capturado por los vendedores al
+ * cerrar -- no hay una columna de "plataforma de ads". Se mapea lo que
+ * confirmó Dana: "Ads"/"Adds" (typo repetido en el tablero) = Google Ads,
+ * "Facebook" + "Instagram" = Meta. No hay ninguna fila de "Pinterest" ni
+ * "TikTok" en como_llego todavía -- su ROAS sale en 0 hasta que exista un
+ * cierre atribuido a esa plataforma.
+ */
+const CANAL_A_PLATAFORMA: Record<string, (typeof PLATAFORMAS_ROAS)[number]> = {
+  ads: "google",
+  adds: "google",
+  facebook: "meta",
+  instagram: "meta",
+};
+
+export interface KpiGerentePlataforma {
+  plataforma: (typeof PLATAFORMAS_ROAS)[number];
+  gasto: number | null;
+  nota: string | null;
+  ventasAtribuidasIva: number;
+  roas: number | null;
+}
+
+export interface KpiGerenteMes {
+  periodoId: string;
+  mes: string;
+  leadsCalificados: number;
+  mql: number;
+  conversionMqlSql: number | null;
+  presupuestoAds: number | null;
+  gastoAdsReal: number | null;
+  cpl: number | null;
+  plataformas: KpiGerentePlataforma[];
+}
+
+export interface SeguidorRed {
+  red: string;
+  fecha: string;
+  seguidores: number;
+}
+
+export interface PanelGerenteMarketing {
+  meses: KpiGerenteMes[];
+  seguidores: SeguidorRed[];
+}
+
+/** Panel de los 5 KPIs del perfil de Gerente de Marketing, para los periodos (meses calendario) dados. */
+export async function panelGerenteMarketing(periodoIds: string[]): Promise<PanelGerenteMarketing> {
+  const supabase = await createClient();
+
+  const [periodosRes, kpisRes, gastoRes, gastoPlataformaRes, seguidoresRes, dealsRes] = await Promise.all([
+    supabase.from("periodos").select("id, mes").in("id", periodoIds),
+    supabase.from("marketing_kpis").select("nombre_kpi, mes, resultado").in("nombre_kpi", ["Leads calificados generados", "MQL"]),
+    supabase.from("marketing_gasto_ads").select("periodo_id, presupuesto, gasto_real").in("periodo_id", periodoIds),
+    supabase.from("marketing_gasto_ads_plataforma").select("periodo_id, plataforma, gasto, nota").in("periodo_id", periodoIds),
+    supabase.from("marketing_seguidores").select("red, fecha, seguidores").order("fecha", { ascending: true }),
+    supabase.from("v_deals_operativo").select("periodo_id, como_llego, monto_atribuido_con_iva")
+      .in("periodo_id", periodoIds).eq("cerrado_ganado", true).not("como_llego", "is", null),
+  ]);
+
+  const periodosPorId = new Map((periodosRes.data as Array<{ id: string; mes: number }> ?? []).map((p) => [p.id, p.mes]));
+  const kpis = (kpisRes.data as Array<{ nombre_kpi: string; mes: string; resultado: number | null }>) ?? [];
+  const gastoAgregado = new Map(
+    (gastoRes.data as Array<{ periodo_id: string; presupuesto: number | null; gasto_real: number }> ?? [])
+      .map((g) => [g.periodo_id, g]),
+  );
+  const gastoPlataforma = (gastoPlataformaRes.data as Array<{ periodo_id: string; plataforma: string; gasto: number | null; nota: string | null }>) ?? [];
+  const deals = (dealsRes.data as Array<{ periodo_id: string; como_llego: string; monto_atribuido_con_iva: number | null }>) ?? [];
+
+  const meses: KpiGerenteMes[] = periodoIds.map((periodoId) => {
+    const mesNum = periodosPorId.get(periodoId);
+    const mesTexto = mesNum ? mesEspanolDe(mesNum) : "";
+
+    const leadsCalificados = kpis
+      .filter((k) => k.nombre_kpi === "Leads calificados generados" && k.mes === mesTexto)
+      .reduce((acc, k) => acc + (k.resultado ?? 0), 0);
+    const mql = kpis
+      .filter((k) => k.nombre_kpi === "MQL" && k.mes === mesTexto)
+      .reduce((acc, k) => acc + (k.resultado ?? 0), 0);
+
+    const gasto = gastoAgregado.get(periodoId) ?? null;
+    const cpl = gasto && leadsCalificados > 0 ? gasto.gasto_real / leadsCalificados : null;
+
+    const ventasPorPlataforma = new Map<string, number>();
+    for (const d of deals) {
+      if (d.periodo_id !== periodoId) continue;
+      const plataforma = CANAL_A_PLATAFORMA[d.como_llego.trim().toLowerCase()];
+      if (!plataforma) continue;
+      ventasPorPlataforma.set(plataforma, (ventasPorPlataforma.get(plataforma) ?? 0) + (d.monto_atribuido_con_iva ?? 0));
+    }
+
+    const plataformas: KpiGerentePlataforma[] = PLATAFORMAS_ROAS.map((plataforma) => {
+      const g = gastoPlataforma.find((gp) => gp.periodo_id === periodoId && gp.plataforma === plataforma);
+      const ventasAtribuidasIva = ventasPorPlataforma.get(plataforma) ?? 0;
+      return {
+        plataforma,
+        gasto: g?.gasto ?? null,
+        nota: g?.nota ?? null,
+        ventasAtribuidasIva,
+        roas: g?.gasto ? ventasAtribuidasIva / g.gasto : null,
+      };
+    });
+
+    return {
+      periodoId,
+      mes: mesTexto,
+      leadsCalificados,
+      mql,
+      conversionMqlSql: mql > 0 ? (leadsCalificados / mql) * 100 : null,
+      presupuestoAds: gasto?.presupuesto ?? null,
+      gastoAdsReal: gasto?.gasto_real ?? null,
+      cpl,
+      plataformas,
+    };
+  });
+
+  return { meses, seguidores: (seguidoresRes.data as SeguidorRed[]) ?? [] };
+}

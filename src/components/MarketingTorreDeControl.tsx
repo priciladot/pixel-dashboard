@@ -2,14 +2,14 @@ import { Suspense } from "react";
 import {
   vendedores, periodos, periodoActivoDe,
   kpisMarketingSemanaActual, diagnosticoMarketingCoach, disciplinaMarketing, tareasMarketing, historialMarketingMensual,
-  metricasCanalDelVendedor, notasGestionMarketing,
+  metricasCanalDelVendedor, notasGestionMarketing, panelGerenteMarketing,
   type KpiMarketing, type AccionMarketingCoach, type DisciplinaMarketing, type RetoSemanaMarketing, type TareaMarketing,
-  type ResumenMarketingMes, type MetricaCanal, type NotaGestion,
+  type ResumenMarketingMes, type MetricaCanal, type NotaGestion, type PanelGerenteMarketing,
 } from "@/lib/queries";
 import type { EstatusReto } from "@/lib/queries";
 import { Card, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
-import { formatearRangoFechas } from "@/lib/format";
+import { formatearRangoFechas, dinero } from "@/lib/format";
 
 /**
  * Torre de Control de Marketing -- mismo patrón dual que TorreDeControl.tsx
@@ -103,7 +103,7 @@ export async function MarketingTorreDeControl({
   const indicePeriodo = lista.findIndex((p) => p.id === periodoId);
   const periodosHistorial = lista.slice(indicePeriodo, indicePeriodo + 3).map((p) => p.id);
 
-  const [semanaActual, coach, disciplina, tareas, historial, metricasCanal, notas] = await Promise.all([
+  const [semanaActual, coach, disciplina, tareas, historial, metricasCanal, notas, panelGerente] = await Promise.all([
     kpisMarketingSemanaActual(vendedorIdForzado, periodoId),
     diagnosticoMarketingCoach(vendedorIdForzado, periodoId),
     disciplinaMarketing(vendedorIdForzado, periodoId),
@@ -111,6 +111,7 @@ export async function MarketingTorreDeControl({
     historialMarketingMensual(vendedorIdForzado, periodosHistorial),
     metricasCanalDelVendedor(vendedorIdForzado),
     notasGestionMarketing(vendedorIdForzado),
+    persona?.rol === "marketing_lead" ? panelGerenteMarketing([...periodosHistorial].reverse()) : Promise.resolve(null as PanelGerenteMarketing | null),
   ]);
 
   return (
@@ -125,6 +126,15 @@ export async function MarketingTorreDeControl({
             <Filtros periodos={lista} periodoActivoId={periodoId} />
           </Suspense>
         </div>
+      )}
+
+      {panelGerente && (
+        <Seccion
+          titulo="🧭 Perfil de Gerente de Marketing — KPIs de área"
+          descripcion="Los 5 KPIs del perfil vigente de Gerente de Marketing, por mes calendario -- no por persona."
+        >
+          <PanelGerenteMarketingTarjeta panel={panelGerente} />
+        </Seccion>
       )}
 
       <Seccion titulo="📋 Pendientes y tareas" descripcion="Entregables asignados por dirección/lead de Marketing -- cuotas mensuales o tareas puntuales, con fecha límite.">
@@ -219,6 +229,165 @@ function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
         );
       })}
     </ul>
+  );
+}
+
+const ETIQUETA_PLATAFORMA: Record<string, string> = {
+  google: "Google",
+  meta: "Meta (Facebook/Instagram)",
+  tiktok: "TikTok",
+  pinterest: "Pinterest",
+};
+
+const ETIQUETA_RED: Record<string, string> = {
+  instagram: "Instagram",
+  facebook: "Facebook",
+  pinterest: "Pinterest",
+  tiktok: "TikTok",
+  youtube: "YouTube",
+};
+
+/** Los 5 KPIs del perfil de Gerente de Marketing -- por mes calendario, área completa (no por persona). */
+function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing }) {
+  return (
+    <div className="space-y-3">
+      {/* KPI 1 y 2: Leads Calificados + CPL/Conversión MQL→SQL ------------ */}
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-[13px]">
+            <thead>
+              <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+                <th className="px-4 py-2.5 font-medium">Mes</th>
+                <th className="px-4 py-2.5 font-medium">Leads calificados (SQL)</th>
+                <th className="px-4 py-2.5 font-medium">MQL</th>
+                <th className="px-4 py-2.5 font-medium">Conversión MQL→SQL (meta ≥20%)</th>
+                <th className="px-4 py-2.5 font-medium">Gasto real ads</th>
+                <th className="px-4 py-2.5 font-medium">CPL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {panel.meses.map((m) => {
+                const cumpleConversion = m.conversionMqlSql != null && m.conversionMqlSql >= 20;
+                return (
+                  <tr key={m.periodoId} className="border-b border-line/70 last:border-0">
+                    <td className="px-4 py-2.5 font-medium text-ink">{m.mes}</td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.leadsCalificados}</td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.mql || "—"}</td>
+                    <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.conversionMqlSql == null ? undefined : cumpleConversion ? "#0ca30c" : "#d03b3b" }}>
+                      {m.conversionMqlSql == null ? "Sin MQL capturado" : `${m.conversionMqlSql.toFixed(1)}%`}
+                    </td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.gastoAdsReal != null ? dinero(m.gastoAdsReal) : "—"}</td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.cpl != null ? dinero(m.cpl) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* KPI 3: ROAS por plataforma -------------------------------------- */}
+      <Card className="overflow-hidden">
+        <div className="border-b border-line px-4 py-2.5 text-[12px] font-semibold text-ink">
+          Desempeño de campañas digitales (ROAS) — meta: ROI positivo
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-[13px]">
+            <thead>
+              <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+                <th className="px-4 py-2.5 font-medium">Mes</th>
+                <th className="px-4 py-2.5 font-medium">Plataforma</th>
+                <th className="px-4 py-2.5 font-medium">Gasto</th>
+                <th className="px-4 py-2.5 font-medium">Ventas atribuidas</th>
+                <th className="px-4 py-2.5 font-medium">ROAS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {panel.meses.flatMap((m) =>
+                m.plataformas.map((p) => (
+                  <tr key={`${m.periodoId}-${p.plataforma}`} className="border-b border-line/70 last:border-0">
+                    <td className="px-4 py-2.5 text-ink-soft">{m.mes}</td>
+                    <td className="px-4 py-2.5 text-ink">{ETIQUETA_PLATAFORMA[p.plataforma]}</td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">
+                      {p.gasto != null ? dinero(p.gasto) : p.nota ? p.nota : "Sin dato"}
+                    </td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{dinero(p.ventasAtribuidasIva)}</td>
+                    <td className="px-4 py-2.5 tabular font-medium" style={{ color: p.roas == null ? undefined : p.roas >= 1 ? "#0ca30c" : "#d03b3b" }}>
+                      {p.roas != null ? `${p.roas.toFixed(2)}x` : "—"}
+                    </td>
+                  </tr>
+                )),
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="border-t border-line bg-surface-sunk px-4 py-2 text-[11px] text-ink-muted">
+          Ventas atribuidas = negocios ganados con "¿cómo llegó?" de Facebook/Instagram (Meta) o Ads (Google) en HubSpot/Monday. Pinterest y TikTok
+          muestran $0 en ventas hasta que exista un cierre atribuido a esa plataforma.
+        </p>
+      </Card>
+
+      {/* KPI 4: Cumplimiento del calendario -- pendiente de integrar ------ */}
+      <Card className="px-4 py-4">
+        <h3 className="text-[13px] font-semibold text-ink">Cumplimiento del Calendario de Marketing (meta ≥95%)</h3>
+        <p className="mt-1.5 text-[12px] text-ink-soft">
+          Pendiente de integrar -- ya localizamos el tablero de Monday ("✅Campañas MKT", agrupado por Facebook/Instagram/Google/Pinterest/YT,
+          con un estatus de "Listo"/"No se entregó a tiempo" por entregable) pero falta construir la sincronización. En cuanto esté lista, este KPI
+          se calcula solo, sin captura manual.
+        </p>
+      </Card>
+
+      {/* KPI 5: Crecimiento de Ecosistema Digital ------------------------- */}
+      <Card className="overflow-hidden">
+        <div className="border-b border-line px-4 py-2.5 text-[12px] font-semibold text-ink">
+          Crecimiento de Ecosistema Digital — meta: tendencia creciente mes a mes
+        </div>
+        <TablaSeguidores seguidores={panel.seguidores} />
+      </Card>
+    </div>
+  );
+}
+
+/** Seguidores por red, con el cambio vs. la toma anterior de esa misma red. */
+function TablaSeguidores({ seguidores }: { seguidores: PanelGerenteMarketing["seguidores"] }) {
+  if (seguidores.length === 0) {
+    return <p className="px-4 py-4 text-[13px] text-ink-soft">Sin capturas de seguidores todavía.</p>;
+  }
+
+  const porRed = new Map<string, typeof seguidores>();
+  for (const s of seguidores) porRed.set(s.red, [...(porRed.get(s.red) ?? []), s]);
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+            <th className="px-4 py-2.5 font-medium">Red</th>
+            <th className="px-4 py-2.5 font-medium">Fecha</th>
+            <th className="px-4 py-2.5 font-medium">Seguidores</th>
+            <th className="px-4 py-2.5 font-medium">Cambio vs. toma anterior</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...porRed.entries()].flatMap(([red, filas]) =>
+            filas.map((f, i) => {
+              const anterior = i > 0 ? filas[i - 1].seguidores : null;
+              const cambio = anterior != null && anterior > 0 ? ((f.seguidores - anterior) / anterior) * 100 : null;
+              return (
+                <tr key={`${red}-${f.fecha}`} className="border-b border-line/70 last:border-0">
+                  <td className="px-4 py-2.5 text-ink">{i === 0 ? (ETIQUETA_RED[red] ?? red) : ""}</td>
+                  <td className="px-4 py-2.5 text-ink-soft">{new Date(f.fecha).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}</td>
+                  <td className="px-4 py-2.5 tabular text-ink-soft">{f.seguidores.toLocaleString("es-MX")}</td>
+                  <td className="px-4 py-2.5 tabular font-medium" style={{ color: cambio == null ? undefined : cambio > 0 ? "#0ca30c" : cambio < 0 ? "#d03b3b" : "#8a6100" }}>
+                    {cambio == null ? "—" : `${cambio > 0 ? "+" : ""}${cambio.toFixed(1)}%`}
+                  </td>
+                </tr>
+              );
+            }),
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
