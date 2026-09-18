@@ -243,15 +243,6 @@ const ETIQUETA_PLATAFORMA: Record<string, string> = {
   pinterest: "Pinterest",
 };
 
-const ETIQUETA_PLATAFORMA_CUMPLIMIENTO: Record<string, string> = {
-  facebook: "Facebook",
-  instagram: "Instagram",
-  google: "Google",
-  pinterest: "Pinterest",
-  tiktok: "TikTok",
-  youtube: "YouTube",
-};
-
 const ETIQUETA_RED: Record<string, string> = {
   instagram: "Instagram",
   facebook: "Facebook",
@@ -354,43 +345,51 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
           Cumplimiento del Calendario de Marketing — meta ≥95%
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-[13px]">
+          <table className="w-full min-w-[560px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Mes</th>
-                <th className="px-4 py-2.5 font-medium">Plataforma</th>
-                <th className="px-4 py-2.5 font-medium">A tiempo</th>
-                <th className="px-4 py-2.5 font-medium">Atrasado</th>
-                <th className="px-4 py-2.5 font-medium">Sin resolver</th>
+                <th className="px-4 py-2.5 font-medium">Persona</th>
                 <th className="px-4 py-2.5 font-medium">% Cumplimiento</th>
               </tr>
             </thead>
             <tbody>
-              {panel.cumplimientoCalendario.flatMap((m) =>
-                m.plataformas.map((p) => {
+              {panel.cumplimientoCalendario.flatMap((m) => [
+                ...m.personas.map((p) => {
                   const cumple = p.pct != null && p.pct >= 95;
                   return (
-                    <tr key={`${m.periodoId}-${p.plataforma}`} className="border-b border-line/70 last:border-0">
+                    <tr key={`${m.periodoId}-${p.persona}`} className="border-b border-line/70 last:border-0">
                       <td className="px-4 py-2.5 text-ink-soft">{m.mes}</td>
-                      <td className="px-4 py-2.5 text-ink">{ETIQUETA_PLATAFORMA_CUMPLIMIENTO[p.plataforma] ?? p.plataforma}</td>
-                      <td className="px-4 py-2.5 tabular text-ink-soft">{p.aTiempo}</td>
-                      <td className="px-4 py-2.5 tabular text-ink-soft">{p.atrasado}</td>
-                      <td className="px-4 py-2.5 tabular text-ink-muted">{p.sinResolver}</td>
+                      <td className="px-4 py-2.5 text-ink">{p.persona}</td>
                       <td className="px-4 py-2.5 tabular font-medium" style={{ color: p.pct == null ? undefined : cumple ? "#0ca30c" : "#d03b3b" }}>
-                        {p.pct == null ? "Sin datos suficientes" : `${p.pct.toFixed(1)}%`}
+                        {p.pct == null ? "Sin dato ese mes" : `${p.pct.toFixed(1)}%`}
                       </td>
                     </tr>
                   );
                 }),
-              )}
+                ...m.pendientes.map((persona) => (
+                  <tr key={`${m.periodoId}-${persona}-pendiente`} className="border-b border-line/70 last:border-0">
+                    <td className="px-4 py-2.5 text-ink-soft">{m.mes}</td>
+                    <td className="px-4 py-2.5 text-ink">{persona}</td>
+                    <td className="px-4 py-2.5 font-medium text-[#8a6100]">Falta definir su KPI de cumplimiento -- Dana debe darlo de alta en Monday</td>
+                  </tr>
+                )),
+                <tr key={`${m.periodoId}-general`} className="border-b border-line last:border-0 bg-surface-sunk">
+                  <td className="px-4 py-2.5 font-medium text-ink">{m.mes}</td>
+                  <td className="px-4 py-2.5 font-medium text-ink">Promedio general</td>
+                  <td className="px-4 py-2.5 tabular font-semibold" style={{ color: m.pctGeneral == null ? undefined : m.pctGeneral >= 95 ? "#0ca30c" : "#d03b3b" }}>
+                    {m.pctGeneral == null ? "Sin dato" : `${m.pctGeneral.toFixed(1)}%`}
+                  </td>
+                </tr>,
+              ])}
             </tbody>
           </table>
         </div>
         <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
-          <p><span className="font-medium text-ink-soft">Fuente:</span> tablero de Monday "✅Campañas MKT" -- se compara la Fecha Límite de Entrega contra la Fecha y horario de Entrega Final de cada campaña, por plataforma (el grupo del tablero) y por el mes en que Monday la tiene etiquetada.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">A tiempo / Atrasado:</span> campañas que ya tienen fecha de entrega final capturada, comparada contra su fecha límite. <span className="font-medium text-ink-soft">Sin resolver:</span> campañas que todavía no tienen fecha de entrega final en Monday -- no cuentan ni a favor ni en contra del %.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">% Cumplimiento:</span> A tiempo ÷ (A tiempo + Atrasado) × 100. "Sin datos suficientes" = 0 campañas resueltas todavía ese mes/plataforma (ej. Julio, ninguna plataforma tenía fecha de entrega final capturada).</p>
-          <p className="mt-1">Foto jalada una sola vez de Monday (no hay sincronización automática todavía) -- puede no reflejar cambios hechos en el tablero después del 18 de septiembre de 2026.</p>
+          <p><span className="font-medium text-ink-soft">Santiago / Xuan:</span> promedio de sus semanas de "Piezas entregadas en tiempo" del mes (ya en %, meta 95% cada uno) -- viene del tablero "Registro de KPIs - Marketing".</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Melissa:</span> sus 2 tiempos de respuesta (RRSS y asignación de leads, en minutos) convertidos a % contra su propia meta -- más rápido que la meta = 100%, tope en 100 para no inflar el promedio.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Alan:</span> pendiente -- todavía no tiene un KPI de cumplimiento definido en Monday. No se le inventa un número; hay que darlo de alta.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Promedio general:</span> promedio simple de las personas con dato ese mes (Alan no cuenta hasta que exista su KPI).</p>
         </div>
       </Card>
 

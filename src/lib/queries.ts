@@ -2530,25 +2530,49 @@ export interface SeguidorRed {
   seguidores: number;
 }
 
-export interface CumplimientoPlataforma {
-  plataforma: string;
-  aTiempo: number;
-  atrasado: number;
-  sinResolver: number;
+export interface CumplimientoPersona {
+  persona: string;
   pct: number | null;
+}
+
+export interface CumplimientoMes {
+  periodoId: string;
+  mes: string;
+  personas: CumplimientoPersona[];
+  pendientes: string[];
+  pctGeneral: number | null;
 }
 
 export interface PanelGerenteMarketing {
   meses: KpiGerenteMes[];
   seguidores: SeguidorRed[];
-  cumplimientoCalendario: Array<{ periodoId: string; mes: string; plataformas: CumplimientoPlataforma[] }>;
+  cumplimientoCalendario: CumplimientoMes[];
 }
+
+/**
+ * Cumplimiento del Calendario (KPI 4) -- Pris confirmó que el criterio
+ * real es el promedio de las piezas/tiempos que YA capturan Santiago y
+ * Xuan (ambos con meta 95%) más los tiempos de respuesta de Melissa
+ * (en minutos, se convierten a % contra su propia meta: más rápido que
+ * la meta = 100%, tope en 100 para no inflar el promedio con semanas muy
+ * por debajo del objetivo). Alan todavía no tiene un KPI equivalente
+ * definido en Monday -- se marca como pendiente en vez de inventarle un
+ * número, hasta que Dana lo dé de alta.
+ */
+const FUENTES_CUMPLIMIENTO: Array<{ persona: string; nombreKpi: string; unidad: "Porcentaje" | "Tiempo" }> = [
+  { persona: "Santiago", nombreKpi: "Piezas entregadas en tiempo SANTI", unidad: "Porcentaje" },
+  { persona: "Xuan", nombreKpi: "Piezas entregadas en tiempo XUAN", unidad: "Porcentaje" },
+  { persona: "Melissa", nombreKpi: "Tiempo promedio de respuesta RRSS", unidad: "Tiempo" },
+  { persona: "Melissa", nombreKpi: "Tiempo promedio de asignación de leads RRSS", unidad: "Tiempo" },
+];
+const PERSONAS_CON_KPI_DEFINIDO = new Set(FUENTES_CUMPLIMIENTO.map((f) => f.persona));
+const PENDIENTES_CUMPLIMIENTO = ["Alan"]; // sin KPI de cumplimiento definido todavía -- Dana debe darlo de alta en Monday.
 
 /** Panel de los 5 KPIs del perfil de Gerente de Marketing, para los periodos (meses calendario) dados. */
 export async function panelGerenteMarketing(periodoIds: string[]): Promise<PanelGerenteMarketing> {
   const supabase = await createClient();
 
-  const [periodosRes, kpisRes, gastoRes, gastoPlataformaRes, seguidoresRes, dealsRes, cumplimientoRes] = await Promise.all([
+  const [periodosRes, kpisRes, gastoRes, gastoPlataformaRes, seguidoresRes, dealsRes, cumplimientoKpisRes] = await Promise.all([
     supabase.from("periodos").select("id, mes").in("id", periodoIds),
     supabase.from("marketing_kpis").select("nombre_kpi, mes, resultado").in("nombre_kpi", ["Leads calificados generados", "MQL"]),
     supabase.from("marketing_gasto_ads").select("periodo_id, presupuesto, gasto_real").in("periodo_id", periodoIds),
@@ -2556,7 +2580,8 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
     supabase.from("marketing_seguidores").select("red, fecha, seguidores").order("fecha", { ascending: true }),
     supabase.from("v_deals_operativo").select("periodo_id, como_llego, monto_atribuido_con_iva")
       .in("periodo_id", periodoIds).eq("cerrado_ganado", true).not("como_llego", "is", null),
-    supabase.from("marketing_cumplimiento_calendario").select("periodo_id, plataforma, a_tiempo, atrasado, sin_resolver").in("periodo_id", periodoIds),
+    supabase.from("marketing_kpis").select("nombre_kpi, mes, resultado, meta")
+      .in("nombre_kpi", FUENTES_CUMPLIMIENTO.map((f) => f.nombreKpi)),
   ]);
 
   const periodosPorId = new Map((periodosRes.data as Array<{ id: string; mes: number }> ?? []).map((p) => [p.id, p.mes]));
@@ -2623,23 +2648,44 @@ export async function panelGerenteMarketing(periodoIds: string[]): Promise<Panel
     };
   });
 
-  const cumplimientoFilas = (cumplimientoRes.data as Array<{
-    periodo_id: string; plataforma: string; a_tiempo: number; atrasado: number; sin_resolver: number;
+  const cumplimientoKpis = (cumplimientoKpisRes.data as Array<{
+    nombre_kpi: string; mes: string; resultado: number | null; meta: number | null;
   }>) ?? [];
-  const cumplimientoCalendario = periodoIds.map((periodoId) => {
+
+  const cumplimientoCalendario: CumplimientoMes[] = periodoIds.map((periodoId) => {
     const mesNum = periodosPorId.get(periodoId);
+    const mesTexto = mesNum ? mesEspanolDe(mesNum) : "";
+
+    const personas: CumplimientoPersona[] = [...PERSONAS_CON_KPI_DEFINIDO].map((persona) => {
+      // Cada fuente de esta persona aporta el promedio de sus semanas del
+      // mes (ya en 0-100: directo si es "Porcentaje", o meta/resultado
+      // topado en 100 si es "Tiempo", donde menos minutos es mejor).
+      const promediosPorFuente = FUENTES_CUMPLIMIENTO
+        .filter((f) => f.persona === persona)
+        .map((f) => {
+          const filas = cumplimientoKpis.filter((k) => k.nombre_kpi === f.nombreKpi && k.mes === mesTexto && k.resultado != null);
+          if (filas.length === 0) return null;
+          const valores = filas.map((k) =>
+            f.unidad === "Porcentaje" ? (k.resultado as number) : Math.min(100, ((k.meta ?? 0) / (k.resultado as number)) * 100),
+          );
+          return valores.reduce((acc, v) => acc + v, 0) / valores.length;
+        })
+        .filter((v): v is number => v != null);
+
+      return {
+        persona,
+        pct: promediosPorFuente.length > 0 ? promediosPorFuente.reduce((acc, v) => acc + v, 0) / promediosPorFuente.length : null,
+      };
+    });
+
+    const conDato = personas.filter((p): p is { persona: string; pct: number } => p.pct != null);
+
     return {
       periodoId,
-      mes: mesNum ? mesEspanolDe(mesNum) : "",
-      plataformas: cumplimientoFilas
-        .filter((c) => c.periodo_id === periodoId)
-        .map((c) => ({
-          plataforma: c.plataforma,
-          aTiempo: c.a_tiempo,
-          atrasado: c.atrasado,
-          sinResolver: c.sin_resolver,
-          pct: c.a_tiempo + c.atrasado > 0 ? (c.a_tiempo / (c.a_tiempo + c.atrasado)) * 100 : null,
-        })),
+      mes: mesTexto,
+      personas,
+      pendientes: PENDIENTES_CUMPLIMIENTO,
+      pctGeneral: conDato.length > 0 ? conDato.reduce((acc, p) => acc + p.pct, 0) / conDato.length : null,
     };
   });
 
