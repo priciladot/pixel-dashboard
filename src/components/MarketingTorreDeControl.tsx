@@ -289,7 +289,7 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
         </div>
         <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
           <p><span className="font-medium text-ink-soft">Total de leads:</span> del tablero de Monday "🏵️Leads" -- todo lo que llega, sin importar canal.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">Llegaron a negocio nuevo:</span> negocios (deals) creados ese mes en HubSpot con "¿Cómo llegó?" = Instagram, Facebook, Ads, WhatsApp, Llamada, Formulario páginas, Mail, Outbound, Prospección o Patagon -- es decir, cliente NUEVO por un canal de marketing. Se excluyen a propósito Equipo comercial y Recomendación (no pasan por el tablero de Leads) y Contacto existente/Remarketing (son clientes existentes, no leads nuevos).</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Llegaron a negocio nuevo:</span> negocios (deals) creados ese mes en HubSpot con "¿Cómo llegó?" = Instagram, Facebook, Ads, WhatsApp, Llamada, Formulario páginas, Mail, Outbound, Prospección o Patagon -- cliente NUEVO por un canal de marketing. Se excluyen Equipo comercial y Recomendación (no pasan por el tablero de Leads) y Contacto existente/Remarketing (son clientes existentes) -- EXCEPTO si en Monday su "Herramienta de venta" incluye "Redes sociales" o "Showroom", en cuyo caso sí cuentan (marketing influyó en el cierre aunque el canal de origen fuera otro).</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">% Calificados:</span> llegaron a negocio nuevo ÷ total de leads × 100. Meta del perfil de Gerente: ≥80%.</p>
         </div>
       </Card>
