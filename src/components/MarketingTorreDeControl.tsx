@@ -255,17 +255,75 @@ const ETIQUETA_RED: Record<string, string> = {
 function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing }) {
   return (
     <div className="space-y-3">
-      {/* KPI 1 y 2: Leads Calificados + CPL/Conversión MQL→SQL ------------ */}
+      {/* KPI 1: Generación de Leads Calificados (el % real, meta ≥80%) --- */}
       <Card className="overflow-hidden">
+        <div className="border-b border-line px-4 py-2.5 text-[12px] font-semibold text-ink">
+          KPI 1 — Generación de Leads Calificados (SQL) — meta ≥80%
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-[13px]">
+          <table className="w-full min-w-[480px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Mes</th>
-                <th className="px-4 py-2.5 font-medium">Leads calificados (SQL)</th>
-                <th className="px-4 py-2.5 font-medium">% Calificados (meta ≥80%)</th>
+                <th className="px-4 py-2.5 font-medium">Total de leads</th>
+                <th className="px-4 py-2.5 font-medium">Calificados (SQL + Venta)</th>
+                <th className="px-4 py-2.5 font-medium">% Calificados</th>
+              </tr>
+            </thead>
+            <tbody>
+              {panel.meses.map((m) => {
+                const cumpleCalificados = m.pctCalificados != null && m.pctCalificados >= 80;
+                return (
+                  <tr key={m.periodoId} className="border-b border-line/70 last:border-0">
+                    <td className="px-4 py-2.5 font-medium text-ink">{m.mes}</td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.totalLeads ?? "Sin dato"}</td>
+                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.leadsCalificadosReal ?? "Sin dato"}</td>
+                    <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.pctCalificados == null ? undefined : cumpleCalificados ? "#0ca30c" : "#d03b3b" }}>
+                      {m.pctCalificados == null ? "Sin dato" : `${m.pctCalificados.toFixed(1)}%`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
+          Del tablero de Monday "🏵️Leads" (1060 contactos individuales): cada contacto tiene un mes y un estatus (MQL / SQL / No es calificado / Venta).
+          % Calificados = (SQL + Venta) ÷ total de contactos de ese mes × 100.
+        </p>
+      </Card>
+
+      {/* Referencia: cuota semanal auto-reportada -- NO es el KPI 1 oficial,
+          es un tablero distinto donde el equipo escribe a mano cuántos
+          leads calificados generó cada semana. Se deja visible como
+          contexto, pero separado para no mezclar dos fuentes distintas. */}
+      <Card className="px-4 py-3.5">
+        <p className="text-[12px] font-semibold text-ink">Referencia — cuota semanal auto-reportada</p>
+        <p className="mt-1 text-[11px] text-ink-muted">
+          Del tablero "Registro de KPIs - Marketing": el equipo escribe a mano cada semana cuántos leads calificados generó. NO es el mismo dato
+          que el % de arriba (ese sale de contar los contactos reales en el tablero de Leads) -- no tienen por qué coincidir.
+        </p>
+        <div className="mt-2.5 flex flex-wrap gap-x-6 gap-y-1 text-[13px] tabular">
+          {panel.meses.map((m) => (
+            <span key={m.periodoId} className="text-ink-soft">
+              <span className="font-medium text-ink">{m.mes}:</span> {m.leadsCalificados} leads reportados · {m.mql || "—"} MQL
+            </span>
+          ))}
+        </div>
+      </Card>
+
+      {/* KPI 2: CPL / Conversión del Funnel Digital (MQL→SQL, meta ≥20%) - */}
+      <Card className="overflow-hidden">
+        <div className="border-b border-line px-4 py-2.5 text-[12px] font-semibold text-ink">
+          KPI 2 — Costo por Lead (CPL) / Conversión del Funnel Digital — meta ≥20% MQL→SQL
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] border-collapse text-[13px]">
+            <thead>
+              <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
+                <th className="px-4 py-2.5 font-medium">Mes</th>
                 <th className="px-4 py-2.5 font-medium">MQL</th>
-                <th className="px-4 py-2.5 font-medium">Conversión MQL→SQL (meta ≥20%)</th>
+                <th className="px-4 py-2.5 font-medium">Conversión MQL→SQL</th>
                 <th className="px-4 py-2.5 font-medium">Gasto de plataformas</th>
                 <th className="px-4 py-2.5 font-medium">CPL</th>
               </tr>
@@ -273,14 +331,9 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
             <tbody>
               {panel.meses.map((m) => {
                 const cumpleConversion = m.conversionMqlSql != null && m.conversionMqlSql >= 20;
-                const cumpleCalificados = m.pctCalificados != null && m.pctCalificados >= 80;
                 return (
                   <tr key={m.periodoId} className="border-b border-line/70 last:border-0">
                     <td className="px-4 py-2.5 font-medium text-ink">{m.mes}</td>
-                    <td className="px-4 py-2.5 tabular text-ink-soft">{m.leadsCalificados}</td>
-                    <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.pctCalificados == null ? undefined : cumpleCalificados ? "#0ca30c" : "#d03b3b" }}>
-                      {m.pctCalificados == null ? "Sin dato" : `${m.pctCalificados.toFixed(1)}% (${m.leadsCalificadosReal} de ${m.totalLeads})`}
-                    </td>
                     <td className="px-4 py-2.5 tabular text-ink-soft">{m.mql || "—"}</td>
                     <td className="px-4 py-2.5 tabular font-medium" style={{ color: m.conversionMqlSql == null ? undefined : cumpleConversion ? "#0ca30c" : "#d03b3b" }}>
                       {m.conversionMqlSql == null ? "Sin MQL capturado" : `${m.conversionMqlSql.toFixed(1)}%`}
@@ -294,12 +347,10 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
           </table>
         </div>
         <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
-          <p><span className="font-medium text-ink-soft">Leads calificados (SQL):</span> suma de "Leads calificados generados" del tablero de Monday "Registro de KPIs - Marketing" -- se suman TODAS las semanas capturadas de ese mes, de TODO el equipo de Marketing (no es un promedio ni el dato de una sola persona).</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">% Calificados:</span> del tablero de Monday "🏵️Leads" -- leads marcados SQL o Venta ÷ total de leads del mes × 100. Meta del perfil de Gerente: ≥80%. Es un dato DISTINTO al conteo de la izquierda (ese es semanal sin total contra el que comparar; este sí tiene el % real).</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">MQL:</span> mismo tablero y mismo criterio (suma de todas las semanas del mes), fila "MQL".</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> Leads calificados del mes ÷ MQL del mes × 100. Meta del perfil de Gerente: ≥20% (verde) / por debajo (rojo).</p>
+          <p><span className="font-medium text-ink-soft">MQL:</span> suma de "MQL" del tablero "Registro de KPIs - Marketing", todas las semanas del mes.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> usa la cuota semanal auto-reportada (referencia de arriba) del mes ÷ MQL del mes × 100 -- meta ≥20%.</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">Gasto de plataformas:</span> suma de TODO lo invertido ese mes en las 4 plataformas (Ads/Google + Meta + TikTok + Pinterest) -- captura manual, no viene de ninguna API.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto de plataformas (las 4 sumadas) ÷ Leads calificados del mes.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto de plataformas (las 4 sumadas) ÷ leads calificados reportados del mes.</p>
         </div>
       </Card>
 
