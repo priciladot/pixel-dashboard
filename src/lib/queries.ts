@@ -423,6 +423,36 @@ export async function pendientesLompiAbiertos(vendedorId?: string): Promise<Pend
     }));
 }
 
+export interface EstadoLompi {
+  ultimaSync: string | null;
+  horasDesde: number | null;
+}
+
+/**
+ * Lompi nos EMPUJA sus datos (ver src/app/api/ingesta/lompi/route.ts) --
+ * nosotros no tenemos ninguna API de Lompi a la que llamarle para pedirle
+ * una corrida bajo demanda. Esto es lo más cerca que hay de un "forzar
+ * actualización": mostrar qué tan viejo es lo último que él mandó, para
+ * saber de un vistazo si hay que ir a avisarle en vez de asumir que el
+ * dashboard está desactualizado por un bug de aquí.
+ */
+export async function estadoLompi(): Promise<EstadoLompi> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("ingestas")
+    .select("iniciado_en")
+    .eq("tipo", "lompi_api")
+    .order("iniciado_en", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const ultimaSync = (data as { iniciado_en: string } | null)?.iniciado_en ?? null;
+  return {
+    ultimaSync,
+    horasDesde: ultimaSync ? (Date.now() - new Date(ultimaSync).getTime()) / 3_600_000 : null,
+  };
+}
+
 /**
  * Racha de días consecutivos (hoy hacia atrás) en los que el vendedor NO
  * tuvo ningún pendiente de WhatsApp con `umbralDias` o más sin atender --
