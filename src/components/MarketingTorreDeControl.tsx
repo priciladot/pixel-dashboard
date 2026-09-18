@@ -233,7 +233,7 @@ function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
 }
 
 const ETIQUETA_PLATAFORMA: Record<string, string> = {
-  google: "Google",
+  google: "Ads",
   meta: "Meta (Facebook/Instagram)",
   tiktok: "TikTok",
   pinterest: "Pinterest",
@@ -322,7 +322,7 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
           </table>
         </div>
         <p className="border-t border-line bg-surface-sunk px-4 py-2 text-[11px] text-ink-muted">
-          Ventas atribuidas = negocios ganados con "¿cómo llegó?" de Facebook/Instagram (Meta) o Ads (Google) en HubSpot/Monday. Pinterest y TikTok
+          Ventas atribuidas = negocios ganados con "¿cómo llegó?" de Facebook/Instagram (Meta) o Ads/Adds en HubSpot/Monday. Pinterest y TikTok
           muestran $0 en ventas hasta que exista un cierre atribuido a esa plataforma.
         </p>
       </Card>
