@@ -284,6 +284,13 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
             </tbody>
           </table>
         </div>
+        <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
+          <p><span className="font-medium text-ink-soft">Leads calificados (SQL):</span> suma de "Leads calificados generados" del tablero de Monday "Registro de KPIs - Marketing" -- se suman TODAS las semanas capturadas de ese mes, de TODO el equipo de Marketing (no es un promedio ni el dato de una sola persona).</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">MQL:</span> mismo tablero y mismo criterio (suma de todas las semanas del mes), fila "MQL".</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> Leads calificados del mes ÷ MQL del mes × 100. Meta del perfil de Gerente: ≥20% (verde) / por debajo (rojo).</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Gasto real ads:</span> el gasto real en ads que Dana dictó para ese mes -- no viene de ninguna API, es captura manual.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto real ads ÷ Leads calificados del mes. Ej. Julio: $17,385 ÷ 60 leads = $290 por lead.</p>
+        </div>
       </Card>
 
       {/* KPI 3: ROAS por plataforma -------------------------------------- */}
@@ -321,10 +328,11 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
             </tbody>
           </table>
         </div>
-        <p className="border-t border-line bg-surface-sunk px-4 py-2 text-[11px] text-ink-muted">
-          Ventas atribuidas = negocios ganados con "¿cómo llegó?" de Facebook/Instagram (Meta) o Ads/Adds en HubSpot/Monday. Pinterest y TikTok
-          muestran $0 en ventas hasta que exista un cierre atribuido a esa plataforma.
-        </p>
+        <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
+          <p><span className="font-medium text-ink-soft">Gasto:</span> lo que Dana dictó para esa plataforma y mes -- captura manual, no una API. "Sin dato" = todavía no se ha capturado (no es $0).</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Ventas atribuidas:</span> suma de negocios GANADOS cuyo campo "¿cómo llegó?" (capturado por el vendedor en HubSpot/Monday al cerrar) es "Facebook" o "Instagram" → fila Meta; "Ads", "Adds", "Llamada"/"Llamadas" o "Formulario" → fila Ads. Pinterest y TikTok no tienen ningún cierre con ese "¿cómo llegó?" todavía, por eso muestran $0 -- no significa que no haya inversión, significa que ningún negocio ganado se atribuyó a esa plataforma.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">ROAS:</span> Ventas atribuidas ÷ Gasto. Ej. Julio Ads: $25,080 ÷ $17,385 = 1.44x (verde, ≥1x = retorno positivo). Sale "—" cuando no hay gasto capturado.</p>
+        </div>
       </Card>
 
       {/* KPI 4: Cumplimiento del calendario -- pendiente de integrar ------ */}
