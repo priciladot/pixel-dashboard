@@ -265,7 +265,7 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
                 <th className="px-4 py-2.5 font-medium">Leads calificados (SQL)</th>
                 <th className="px-4 py-2.5 font-medium">MQL</th>
                 <th className="px-4 py-2.5 font-medium">Conversión MQL→SQL (meta ≥20%)</th>
-                <th className="px-4 py-2.5 font-medium">Gasto real ads</th>
+                <th className="px-4 py-2.5 font-medium">Gasto de plataformas</th>
                 <th className="px-4 py-2.5 font-medium">CPL</th>
               </tr>
             </thead>
@@ -292,8 +292,8 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
           <p><span className="font-medium text-ink-soft">Leads calificados (SQL):</span> suma de "Leads calificados generados" del tablero de Monday "Registro de KPIs - Marketing" -- se suman TODAS las semanas capturadas de ese mes, de TODO el equipo de Marketing (no es un promedio ni el dato de una sola persona).</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">MQL:</span> mismo tablero y mismo criterio (suma de todas las semanas del mes), fila "MQL".</p>
           <p className="mt-1"><span className="font-medium text-ink-soft">Conversión MQL→SQL:</span> Leads calificados del mes ÷ MQL del mes × 100. Meta del perfil de Gerente: ≥20% (verde) / por debajo (rojo).</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">Gasto real ads:</span> suma de TODO lo invertido ese mes en las 4 plataformas (Ads/Google + Meta + TikTok + Pinterest) -- captura manual, no viene de ninguna API.</p>
-          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto real ads (las 4 plataformas sumadas) ÷ Leads calificados del mes.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Gasto de plataformas:</span> suma de TODO lo invertido ese mes en las 4 plataformas (Ads/Google + Meta + TikTok + Pinterest) -- captura manual, no viene de ninguna API.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">CPL:</span> Gasto de plataformas (las 4 sumadas) ÷ Leads calificados del mes.</p>
         </div>
       </Card>
 
