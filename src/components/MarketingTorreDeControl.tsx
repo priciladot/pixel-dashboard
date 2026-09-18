@@ -266,7 +266,7 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Mes</th>
                 <th className="px-4 py-2.5 font-medium">Total de leads</th>
-                <th className="px-4 py-2.5 font-medium">Calificados (SQL + Venta)</th>
+                <th className="px-4 py-2.5 font-medium">Llegaron a negocio nuevo</th>
                 <th className="px-4 py-2.5 font-medium">% Calificados</th>
               </tr>
             </thead>
@@ -287,10 +287,11 @@ function PanelGerenteMarketingTarjeta({ panel }: { panel: PanelGerenteMarketing 
             </tbody>
           </table>
         </div>
-        <p className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
-          Del tablero de Monday "🏵️Leads" (1060 contactos individuales): cada contacto tiene un mes y un estatus (MQL / SQL / No es calificado / Venta).
-          % Calificados = (SQL + Venta) ÷ total de contactos de ese mes × 100.
-        </p>
+        <div className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
+          <p><span className="font-medium text-ink-soft">Total de leads:</span> del tablero de Monday "🏵️Leads" -- todo lo que llega, sin importar canal.</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">Llegaron a negocio nuevo:</span> negocios (deals) creados ese mes en HubSpot con "¿Cómo llegó?" = Instagram, Facebook, Ads, WhatsApp, Llamada, Formulario páginas, Mail, Outbound, Prospección o Patagon -- es decir, cliente NUEVO por un canal de marketing. Se excluyen a propósito Equipo comercial y Recomendación (no pasan por el tablero de Leads) y Contacto existente/Remarketing (son clientes existentes, no leads nuevos).</p>
+          <p className="mt-1"><span className="font-medium text-ink-soft">% Calificados:</span> llegaron a negocio nuevo ÷ total de leads × 100. Meta del perfil de Gerente: ≥80%.</p>
+        </div>
       </Card>
 
       {/* Referencia: cuota semanal auto-reportada -- NO es el KPI 1 oficial,
