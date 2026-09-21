@@ -30,7 +30,9 @@ export async function ComparativoVentasAnual() {
           <KpiCard etiqueta={`Venta acumulada (con IVA, corte ${meta.corteEtiqueta})`} valor={dinero(meta.acumuladoIva)} />
         </div>
       )}
-      {meta?.notas && <p className="text-[11px] text-ink-muted">{meta.notas}</p>}
+      {/* La nota original de metas_anuales quedó fija al corte de julio (con
+          números viejos) -- se omite aquí para no confundir; el avance ya
+          se recalcula en vivo con los meses corregidos. */}
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">

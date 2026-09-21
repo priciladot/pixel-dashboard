@@ -1198,16 +1198,26 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
   });
 
   const m = metaRes.data as {
-    anio: number; objetivo_iva: number; acumulado_iva: number; corte_periodo_id: string; notas: string | null;
+    anio: number; objetivo_iva: number; corte_periodo_id: string; notas: string | null;
   } | null;
+
+  // El acumulado se calcula EN VIVO sumando los meses de ventas_historico_
+  // mensual del año de la meta (× 1.16) -- no se usa metas_anuales.
+  // acumulado_iva: ese campo es un snapshot fijo (quedó pegado en el corte
+  // de julio, nunca se actualizó) y Pris confirmó que el acumulado real
+  // debe reflejar los meses ya corregidos hasta el más reciente con datos.
+  const mesesDelAnio = m ? historico.filter((h) => h.anio === m.anio) : [];
+  const acumuladoSinIva = mesesDelAnio.reduce((acc, h) => acc + h.venta_sin_iva, 0);
+  const acumuladoIva = Math.round(acumuladoSinIva * 1.16 * 100) / 100;
+  const ultimoMesConDato = mesesDelAnio.reduce((max, h) => Math.max(max, h.mes), 0);
 
   const meta: MetaAnual | null = m ? {
     anio: m.anio,
     objetivoIva: m.objetivo_iva,
-    acumuladoIva: m.acumulado_iva,
-    avancePct: m.objetivo_iva > 0 ? (m.acumulado_iva / m.objetivo_iva) * 100 : 0,
-    faltanteIva: m.objetivo_iva - m.acumulado_iva,
-    corteEtiqueta: m.corte_periodo_id,
+    acumuladoIva,
+    avancePct: m.objetivo_iva > 0 ? (acumuladoIva / m.objetivo_iva) * 100 : 0,
+    faltanteIva: m.objetivo_iva - acumuladoIva,
+    corteEtiqueta: ultimoMesConDato > 0 ? `${m.anio}-${String(ultimoMesConDato).padStart(2, "0")}` : m.corte_periodo_id,
     notas: m.notas,
   } : null;
 
