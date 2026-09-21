@@ -124,9 +124,13 @@ export async function TorreDeControl({
 
   const filas = vendedorId ? equipo.filter((f) => f.vendedor_id === vendedorId) : equipo;
   // Misma fuente que el Semáforo Maestro (resultadoRealPorVendedor): para
-  // que la Comparativa nunca muestre un número distinto al del Semáforo
-  // para el mismo vendedor -- solo aplica en vista de equipo.
-  const filasComparativa = vendedorId ? filas : await aplicarResultadoRealAComparativa(filas, periodoId);
+  // que la Comparativa (y el Centro de Mando individual, ver `seleccionado`
+  // más abajo) nunca muestren un número distinto al del Semáforo para el
+  // mismo vendedor -- SIEMPRE se aplica, tanto en vista de equipo como al
+  // filtrar a un solo vendedor (antes se saltaba en vista individual, que
+  // es justo donde más importa: el propio vendedor viendo su perfil debe
+  // ver el mismo número que Dirección ve de él en /maestro).
+  const filasComparativa = await aplicarResultadoRealAComparativa(filas, periodoId);
   // Mismo criterio que el Semáforo/Comparativa para el Centro de Mando del
   // área -- antes leía periodo_resumen_area (otra tabla, capturada aparte)
   // y no coincidía con el total que ya se ve más abajo en la pantalla.
@@ -150,7 +154,7 @@ export async function TorreDeControl({
   // cifra oficial del área — antes se seguía mostrando el total del área sin
   // importar el filtro. Sin filtro, o si el id no resolvió a nadie, se cae al
   // resumen del área de siempre.
-  const seleccionado = vendedorId ? filas[0] : undefined;
+  const seleccionado = vendedorId ? filasComparativa[0] : undefined;
   const resumen = seleccionado
     ? {
         titulo: `🎯 Mi Centro de Mando — ${seleccionado.nombre_corto}`,
