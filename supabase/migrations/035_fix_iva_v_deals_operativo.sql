@@ -19,7 +19,7 @@ select
   d.hubspot_id,
   d.periodo_id,
   m.vendedor_id,
-  m.monto_atribuido * 1.16 as monto_atribuido_con_iva,
+  (m.monto_atribuido * 1.16)::numeric(14,2) as monto_atribuido_con_iva,
   m.estado_proyecto,
   coalesce(m.tipo_negocio, d.tipo_cliente) as tipo_negocio,
   m.elemento_id as monday_elemento_id,
