@@ -6,6 +6,7 @@ import {
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
   proyeccionPipeline, pendientesLompiAbiertos, rachaLompiWhatsapp, progresoAceleradorSemanal, estadoLompi,
+  aplicarResultadoRealAComparativa,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type PendienteLompi, type AceleradorSemanal, type EstadoLompi,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
@@ -107,6 +108,10 @@ export async function TorreDeControl({
   ]);
 
   const filas = vendedorId ? equipo.filter((f) => f.vendedor_id === vendedorId) : equipo;
+  // Misma fuente que el Semáforo Maestro (resultadoRealPorVendedor): para
+  // que la Comparativa nunca muestre un número distinto al del Semáforo
+  // para el mismo vendedor -- solo aplica en vista de equipo.
+  const filasComparativa = vendedorId ? filas : await aplicarResultadoRealAComparativa(filas, periodoId);
   const tareasAtrasadas = tareas.filter((t) => t.atrasada).length;
   const mapaVendedores = new Map(personas.map((p) => [p.id, p.nombre_corto]));
   const nombresVendedores = nombresDeVendedores(mapaVendedores);
@@ -302,9 +307,9 @@ export async function TorreDeControl({
       {!seleccionado && (
         <Seccion
           titulo="Comparativa de desempeño y cumplimiento"
-          descripcion={`${filas.length} de ${equipo.length} registros del periodo. Venta: cifra oficial del Semáforo Comercial (captura manual), no un cálculo automático de HubSpot.`}
+          descripcion={`${filas.length} de ${equipo.length} registros del periodo. Venta: mismo criterio que el Reporte de Semáforos de abajo (el mayor entre Monday y HubSpot), no el semáforo comercial capturado a mano.`}
         >
-          <TablaComparativa filas={filas} />
+          <TablaComparativa filas={filasComparativa} />
           {conObjetivoPorConfirmar && (
             <p className="mt-2 text-[12px] text-ink-muted">
               Los objetivos marcados con <span className="font-medium">*</span> están reconstruidos a partir del

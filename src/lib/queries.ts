@@ -3,7 +3,7 @@ import { etapaInfo, nombreEtapa, ETAPAS_PIPELINE } from "./pipeline-etapas";
 import { dinero, pct } from "./format";
 import type {
   Accion, Benchmark, ContextoMercado, Evaluacion, FilaBrecha,
-  KpiVendedor, Perfil, Periodo, ResumenArea, Ventana,
+  KpiVendedor, Perfil, Periodo, ResumenArea, Semaforo, Ventana,
 } from "./types";
 
 /**
@@ -944,23 +944,34 @@ function semaforoDe(resultado: number, verde: number, amarillo: number): "verde"
  * y confirmó que puede diferir del total oficial de HubSpot cuando
  * Monday atribuye manualmente un monto combinado a un cierre.
  */
-export async function reporteSemaforoComercial(periodoId: string): Promise<{ filas: FilaSemaforoComercial[]; total: FilaSemaforoComercial }> {
+export interface ResultadoRealVendedor {
+  existentes: number;
+  nuevos: number;
+  resultado: number;
+}
+
+/**
+ * Resultado REAL por vendedor -- fuente única para el Semáforo Maestro Y
+ * la Comparativa de desempeño, para que nunca muestren números distintos
+ * (Pris lo pidió explícitamente: "no deben existir dos fórmulas
+ * distintas"). Resultado = el MAYOR entre lo que Monday tiene atribuido
+ * (deduplicado por hubspot_id, con IVA) y la cifra oficial de HubSpot
+ * (kpi_mensual.venta_total_iva) -- confirmado vendedor por vendedor:
+ * a veces Monday atribuye más (combo/comisión manual que HubSpot no ve,
+ * ej. Pris/Roxana) y a veces HubSpot tiene más (negocios ganados que
+ * nunca se registraron en Monday, ej. Gaby). El vendedor nunca debe
+ * salir perjudicado por el lado que se quede corto.
+ */
+export async function resultadoRealPorVendedor(periodoId: string): Promise<Map<string, ResultadoRealVendedor>> {
   const supabase = await createClient();
 
-  const [metasRes, dealsRes, perfilesRes, kpiRes] = await Promise.all([
-    supabase.from("metas_semaforo").select("*").eq("periodo_id", periodoId),
+  const [dealsRes, kpiRes] = await Promise.all([
     supabase.from("v_deals_operativo").select("vendedor_id, hubspot_id, como_llego, monto_atribuido_con_iva, cerrado_ganado")
       .eq("periodo_id", periodoId).not("monday_elemento_id", "is", null).eq("cerrado_ganado", true),
-    supabase.from("profiles").select("id, nombre_corto"),
     supabase.from("kpi_mensual").select("vendedor_id, venta_total_iva").eq("periodo_id", periodoId).eq("ventana", "calendario"),
   ]);
 
-  const metas = (metasRes.data as Array<{
-    vendedor_id: string; existentes_verde: number; existentes_amarillo: number;
-    nuevos_verde: number; nuevos_amarillo: number; punto_equilibrio: number;
-  }>) ?? [];
   const dealsCrudos = (dealsRes.data as Array<{ vendedor_id: string | null; hubspot_id: string; como_llego: string | null; monto_atribuido_con_iva: number | null }>) ?? [];
-  const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
   const ventaOficialPorVendedor = new Map(
     (kpiRes.data as Array<{ vendedor_id: string; venta_total_iva: number | null }> ?? []).map((k) => [k.vendedor_id, k.venta_total_iva ?? 0]),
   );
@@ -990,30 +1001,47 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
     resultadosPorVendedor.set(d.vendedor_id, r);
   }
 
-  const filas: FilaSemaforoComercial[] = metas.map((m) => {
-    // Resultado = el MAYOR entre lo que Monday tiene atribuido (deduplicado,
-    // con IVA) y la cifra oficial de HubSpot -- Pris lo confirmó comparando
-    // vendedor por vendedor: a veces Monday atribuye más (un combo/comisión
-    // manual que HubSpot no ve, ej. Pris/Roxana) y a veces HubSpot tiene más
-    // (negocios ganados que nunca se registraron en Monday, ej. Gaby). El
-    // vendedor nunca debe salir perjudicado por el que se quede corto.
-    const rMonday = resultadosPorVendedor.get(m.vendedor_id) ?? { existentes: 0, nuevos: 0 };
+  const vendedorIds = new Set([...resultadosPorVendedor.keys(), ...ventaOficialPorVendedor.keys()]);
+  const salida = new Map<string, ResultadoRealVendedor>();
+  for (const vendedorId of vendedorIds) {
+    const rMonday = resultadosPorVendedor.get(vendedorId) ?? { existentes: 0, nuevos: 0 };
     const sumaMonday = rMonday.existentes + rMonday.nuevos;
-    const oficial = ventaOficialPorVendedor.get(m.vendedor_id) ?? 0;
+    const oficial = ventaOficialPorVendedor.get(vendedorId) ?? 0;
     const resultado = Math.max(sumaMonday, oficial);
 
-    let r: { existentes: number; nuevos: number };
     if (resultado === sumaMonday) {
       // Monday manda -- ya suma exacto al resultado, se usa tal cual.
-      r = rMonday;
+      salida.set(vendedorId, { existentes: rMonday.existentes, nuevos: rMonday.nuevos, resultado });
     } else {
       // La cifra oficial es mayor: se reparte con la MISMA proporción
       // Existentes/Nuevos que ya muestra Monday, escalada para que la suma
       // dé exacto el oficial (sin Monday que repartir, todo va a Nuevos).
       const pctExistentes = sumaMonday > 0 ? rMonday.existentes / sumaMonday : 0;
       const existentes = Math.round(oficial * pctExistentes * 100) / 100;
-      r = { existentes, nuevos: Math.round((oficial - existentes) * 100) / 100 };
+      salida.set(vendedorId, { existentes, nuevos: Math.round((oficial - existentes) * 100) / 100, resultado });
     }
+  }
+  return salida;
+}
+
+export async function reporteSemaforoComercial(periodoId: string): Promise<{ filas: FilaSemaforoComercial[]; total: FilaSemaforoComercial }> {
+  const supabase = await createClient();
+
+  const [metasRes, perfilesRes, resultados] = await Promise.all([
+    supabase.from("metas_semaforo").select("*").eq("periodo_id", periodoId),
+    supabase.from("profiles").select("id, nombre_corto"),
+    resultadoRealPorVendedor(periodoId),
+  ]);
+
+  const metas = (metasRes.data as Array<{
+    vendedor_id: string; existentes_verde: number; existentes_amarillo: number;
+    nuevos_verde: number; nuevos_amarillo: number; punto_equilibrio: number;
+  }>) ?? [];
+  const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
+
+  const filas: FilaSemaforoComercial[] = metas.map((m) => {
+    const r = resultados.get(m.vendedor_id) ?? { existentes: 0, nuevos: 0, resultado: 0 };
+    const resultado = r.resultado;
     const objetivo = m.existentes_verde + m.nuevos_verde;
     return {
       vendedorId: m.vendedor_id,
@@ -1056,6 +1084,57 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
   };
 
   return { filas, total };
+}
+
+/** Calcado de la función SQL public.semaforo_meta_pe() -- misma regla, en JS. */
+function semaforoMetaPe(venta: number | null, objetivo: number | null, pe: number | null): Semaforo {
+  if (venta == null || !objetivo) return "sin_dato";
+  if (venta >= objetivo) return "verde";
+  if (pe != null) return venta >= pe ? "amarillo" : "rojo";
+  const pct = (venta / objetivo) * 100;
+  if (pct >= 80) return "amarillo";
+  if (pct >= 50) return "naranja";
+  return "rojo";
+}
+
+/**
+ * Aplica el Resultado real (mismo criterio del Semáforo Maestro: el mayor
+ * entre Monday deduplicado y el oficial de HubSpot) sobre las filas de
+ * v_kpi_vendedor que alimentan la Comparativa de desempeño -- para que
+ * las dos tablas de /maestro nunca muestren un número distinto para el
+ * mismo vendedor. Si un vendedor no tiene fila en `metas_semaforo` para
+ * el periodo, se deja tal cual venía (sin objetivo de 3 niveles que usar).
+ */
+export async function aplicarResultadoRealAComparativa(filas: KpiVendedor[], periodoId: string): Promise<KpiVendedor[]> {
+  const supabase = await createClient();
+  const [resultados, metasRes] = await Promise.all([
+    resultadoRealPorVendedor(periodoId),
+    supabase.from("metas_semaforo").select("vendedor_id, existentes_verde, nuevos_verde, punto_equilibrio").eq("periodo_id", periodoId),
+  ]);
+  const metasPorVendedor = new Map(
+    (metasRes.data as Array<{ vendedor_id: string; existentes_verde: number; nuevos_verde: number; punto_equilibrio: number }> ?? [])
+      .map((m) => [m.vendedor_id, m]),
+  );
+
+  return filas.map((f) => {
+    const r = resultados.get(f.vendedor_id);
+    const meta = metasPorVendedor.get(f.vendedor_id);
+    if (!r || !meta) return f;
+
+    const objetivo = meta.existentes_verde + meta.nuevos_verde;
+    return {
+      ...f,
+      venta_existentes_iva: r.existentes,
+      venta_nuevos_iva: r.nuevos,
+      venta_total_iva: r.resultado,
+      objetivo_total: objetivo,
+      objetivo_pe: meta.punto_equilibrio,
+      objetivo_confirmado: true,
+      cumplimiento_pct: objetivo > 0 ? Math.round((r.resultado / objetivo) * 1000) / 10 : null,
+      semaforo: semaforoMetaPe(r.resultado, objetivo, meta.punto_equilibrio),
+      pct_existentes: r.resultado > 0 ? Math.round((r.existentes / r.resultado) * 1000) / 10 : null,
+    };
+  });
 }
 
 export interface FilaComparativoAnual {
