@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { listarCierres, listarColumnas } from "@/lib/ingesta/monday";
 import { ingestarCierresMonday } from "@/lib/ingesta/cargar";
+import { hoyCDMX } from "@/lib/fecha";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,7 +66,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      ejecutado: new Date().toISOString().slice(0, 10),
+      ejecutado: hoyCDMX(),
       ingestaId: r.ingestaId,
       elementosLeidos: crudos.length,
       filasOk: r.filasOk,

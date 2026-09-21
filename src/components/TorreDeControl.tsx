@@ -27,6 +27,7 @@ import { BotonRevisarLompi } from "@/components/BotonRevisarLompi";
 import { AnuncioTemporal } from "@/components/AnuncioTemporal";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
 import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
+import { hoyCDMX, inicioDiaCDMX } from "@/lib/fecha";
 import type { Ventana, Semaforo, AppRole } from "@/lib/types";
 
 /**
@@ -1652,8 +1653,9 @@ const TACTICAS_B2B: Array<{ titulo: string; texto: string }> = [
 ];
 
 function tacticaDeLaSemana(): { titulo: string; texto: string } {
-  const inicioAnio = new Date(new Date().getFullYear(), 0, 1).getTime();
-  const semanaDelAnio = Math.floor((Date.now() - inicioAnio) / (7 * 86_400_000));
+  const inicioAnio = inicioDiaCDMX(0);
+  inicioAnio.setUTCMonth(0, 1);
+  const semanaDelAnio = Math.floor((Date.now() - inicioAnio.getTime()) / (7 * 86_400_000));
   return TACTICAS_B2B[semanaDelAnio % TACTICAS_B2B.length];
 }
 
@@ -1709,7 +1711,7 @@ function DisciplinaComercial({
   if (semanas.length === 0) {
     return <p className="text-[13px] text-ink-soft">Sin calendario de semanas (S1-S4) configurado para este periodo.</p>;
   }
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyCDMX();
   const etiquetaTemporalDe = (s: RetoSemana): string => (s.esSemanaActual ? "En curso" : s.fin < hoy ? "Pasada" : "Próxima");
   return (
     <>

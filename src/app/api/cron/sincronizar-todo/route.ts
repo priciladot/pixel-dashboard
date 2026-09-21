@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sincronizarTodo } from "@/lib/ingesta/sincronizar-todo";
+import { hoyCDMX } from "@/lib/fecha";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,7 +50,7 @@ export async function GET(req: Request) {
   const simulacion = url.searchParams.get("simulacion") === "1";
 
   const db = createAdminClient();
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyCDMX();
 
   const { data: periodos } = await db
     .from("periodos")

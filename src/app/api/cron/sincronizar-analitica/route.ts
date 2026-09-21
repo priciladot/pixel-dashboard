@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads, idsDealsCerrados, listarEtapasPipeline } from "@/lib/ingesta/hubspot-analitica";
 import { ingestarAnaliticaHubspot } from "@/lib/ingesta/cargar";
+import { hoyCDMX } from "@/lib/fecha";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,7 +59,7 @@ export async function GET(req: Request) {
   const simulacion = url.searchParams.get("simulacion") === "1";
 
   const db = createAdminClient();
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyCDMX();
 
   const { data: periodos } = await db
     .from("periodos")

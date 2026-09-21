@@ -1,6 +1,7 @@
 import { createClient } from "./supabase/server";
 import { etapaInfo, nombreEtapa, ETAPAS_PIPELINE } from "./pipeline-etapas";
 import { dinero, pct } from "./format";
+import { hoyCDMX, fechaHoyCDMX, inicioDiaCDMX } from "./fecha";
 import type {
   Accion, Benchmark, ContextoMercado, Evaluacion, FilaBrecha,
   KpiVendedor, Perfil, Periodo, ResumenArea, Semaforo, Ventana,
@@ -11,19 +12,6 @@ import type {
  * usuario, así que el RLS recorta las filas: si un vendedor pide el KPI de
  * otro, Postgres devuelve cero filas. La UI nunca es la que decide.
  */
-
-/**
- * Año/mes de "hoy" en la zona horaria de México (America/Mexico_City), no
- * UTC -- confirmado por Pris. Usar new Date().getUTCFullYear()/getUTCMonth()
- * corre el mes uno hacia adelante durante las horas 00:00-05:59 UTC (que en
- * México todavía son el día anterior).
- */
-function fechaHoyCDMX(): { anio: number; mes: number } {
-  const partes = new Intl.DateTimeFormat("en-US", { timeZone: "America/Mexico_City", year: "numeric", month: "numeric" })
-    .formatToParts(new Date());
-  const obtener = (tipo: string) => Number(partes.find((p) => p.type === tipo)?.value);
-  return { anio: obtener("year"), mes: obtener("month") };
-}
 
 export async function periodos(): Promise<Periodo[]> {
   const supabase = await createClient();
@@ -45,7 +33,7 @@ export async function periodos(): Promise<Periodo[]> {
  * default en pleno septiembre.
  */
 export function periodoActivoDe(lista: Periodo[]): Periodo | undefined {
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyCDMX();
   return lista.find((p) => hoy >= p.cal_inicio && hoy <= p.cal_fin)
     ?? lista.find((p) => hoy >= p.kpi_inicio && hoy <= p.kpi_fin);
 }
@@ -475,8 +463,7 @@ export async function estadoLompi(): Promise<EstadoLompi> {
  */
 export async function rachaLompiWhatsapp(vendedorId: string, umbralDias = 3, diasRacha = 7): Promise<number> {
   const supabase = await createClient();
-  const desde = new Date();
-  desde.setDate(desde.getDate() - (diasRacha + umbralDias + 1));
+  const desde = inicioDiaCDMX(diasRacha + umbralDias + 1);
 
   const { data } = await supabase
     .from("lompi_pendientes")
@@ -489,12 +476,8 @@ export async function rachaLompiWhatsapp(vendedorId: string, umbralDias = 3, dia
 
   let racha = 0;
   for (let i = 0; i < diasRacha; i++) {
-    const dia = new Date();
-    dia.setDate(dia.getDate() - i);
-    dia.setHours(0, 0, 0, 0);
-
-    const limiteVencido = new Date(dia);
-    limiteVencido.setDate(limiteVencido.getDate() - umbralDias);
+    const dia = inicioDiaCDMX(i);
+    const limiteVencido = inicioDiaCDMX(i + umbralDias);
 
     const tuvoVencido = filas.some((f) => {
       const detectado = new Date(f.detectado_en).getTime();
@@ -775,7 +758,7 @@ export interface AceleradorSemanal {
 }
 
 export async function progresoAceleradorSemanal(vendedorId: string): Promise<AceleradorSemanal | null> {
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyCDMX();
   const semanaActual = SEMANAS_ACELERADOR.find((s) => hoy >= s.inicio && hoy <= s.fin);
   if (!semanaActual) return null;
 
@@ -1352,7 +1335,7 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
   } : null;
 
   const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
-  const anioVendedor = m?.anio ?? new Date().getFullYear();
+  const anioVendedor = m?.anio ?? fechaHoyCDMX().anio;
   const filasVendedor = (porVendedorRes.data as Array<{ vendedor_id: string; anio: number; venta_sin_iva: number }> ?? [])
     .filter((v) => v.anio === anioVendedor);
   const totalVendedorConIva = filasVendedor.reduce((acc, v) => acc + v.venta_sin_iva * 1.16, 0);
@@ -1580,7 +1563,7 @@ async function semanaActualYVecinas(
 ): Promise<{ pasada: RangoSemana | null; siguiente: RangoSemana | null }> {
   const { data } = await supabase.from("periodo_semanas").select("periodo_id, semana, inicio, fin").order("inicio", { ascending: true });
   const filas = (data as RangoSemana[]) ?? [];
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyCDMX();
   const idx = filas.findIndex((f) => f.inicio <= hoy && hoy <= f.fin);
   if (idx === -1) return { pasada: null, siguiente: null };
   return { pasada: filas[idx - 1] ?? null, siguiente: filas[idx + 1] ?? null };
@@ -2158,7 +2141,7 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
   if (semanas.length === 0) return { semanas: [], rachaSemanas: 0, alerta: null, estancadosSemanaActual: null };
 
   const metaCierreSemana = objetivoRow?.objetivo_total ? objetivoRow.objetivo_total / 4 : null;
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyCDMX();
 
   const base = await Promise.all(semanas.map(async (s) => {
     const inicioTs = `${s.inicio}T00:00:00`;
@@ -2422,9 +2405,9 @@ export async function proyeccionPipeline(periodoId: string, vendedorId: string):
   const supabase = await createClient();
 
   const { data: periodoRow } = await supabase.from("periodos").select("anio, mes").eq("id", periodoId).maybeSingle();
-  const hoy = new Date();
-  const anio = periodoRow?.anio ?? hoy.getFullYear();
-  const mesActivo = periodoRow?.mes ?? hoy.getMonth() + 1;
+  const hoyFallback = fechaHoyCDMX();
+  const anio = periodoRow?.anio ?? hoyFallback.anio;
+  const mesActivo = periodoRow?.mes ?? hoyFallback.mes;
   const [anioProx, mesProx] = mesActivo === 12 ? [anio + 1, 1] : [anio, mesActivo + 1];
 
   const rangoDe = (a: number, m: number) => {
@@ -2940,14 +2923,14 @@ export async function tareasMarketing(vendedorId?: string): Promise<TareaMarketi
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.order("fecha_limite", { ascending: true });
 
-  const hoy = new Date(); hoy.setUTCHours(0, 0, 0, 0);
+  const hoy = inicioDiaCDMX();
   return ((data as Array<{
     id: number; vendedor_id: string; titulo: string; descripcion: string | null;
     tipo: "cuota_mensual" | "cuota_semanal" | "suelta"; cantidad_requerida: number | null; cantidad_actual: number | null;
     fecha_limite: string;
   }>) ?? []).map((t) => ({
     ...t,
-    dias_para_vencer: Math.round((new Date(`${t.fecha_limite}T00:00:00Z`).getTime() - hoy.getTime()) / 86_400_000),
+    dias_para_vencer: Math.round((new Date(`${t.fecha_limite}T06:00:00Z`).getTime() - hoy.getTime()) / 86_400_000),
   }));
 }
 

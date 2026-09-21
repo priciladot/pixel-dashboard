@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buscarDeals, buscarDealsAbiertos, buscarDealsCreados, enriquecerConAsociaciones, enriquecerConOwners, listarOwners } from "@/lib/ingesta/hubspot";
 import { ingestarDeals } from "@/lib/ingesta/cargar";
+import { hoyCDMX } from "@/lib/fecha";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
   const simulacion = url.searchParams.get("simulacion") === "1";
 
   const db = createAdminClient();
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyCDMX();
 
   // Periodo vigente = aquel cuya ventana de KPI (4 semanas) contiene hoy.
   // Si hoy cae en un hueco del calendario, se toma el más reciente ya iniciado.
