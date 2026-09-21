@@ -7,7 +7,6 @@ import { Filtros } from "@/components/Filtros";
 import { Acciones } from "@/components/Acciones";
 import { Historico } from "@/components/Historico";
 import { TorreDeControl } from "@/components/TorreDeControl";
-import { AnuncioTemporal } from "@/components/AnuncioTemporal";
 import { formatearRangoFechas } from "@/lib/format";
 import type { Ventana } from "@/lib/types";
 
@@ -74,15 +73,6 @@ export default async function VistaVendedor({
           <Filtros periodos={lista} mostrarVistaTiempo periodoActivoId={periodoId} />
         </Suspense>
       </div>
-
-      {/* Anuncios temporales -- solo para la audiencia/rango de fechas de cada
-          uno (ver src/lib/anuncios.ts). Usa el rol/correo del PERFIL que se
-          está viendo (persona), no el de quien inició sesión: un vendedor
-          real solo puede ver su propio perfil (RLS), así que para él persona
-          y sesión son la misma persona -- pero esto también deja que
-          dirección entre a cada perfil y vea exactamente lo que ese
-          vendedor ve, en vez de nunca verlo por tener rol de dirección. */}
-      <AnuncioTemporal rol={persona.rol} correo={persona.email} />
 
       {/* Torre de Control -- mismos 4 Actos que /maestro, con el vendedor
           fijo en persona.id: no hay dropdown para cambiarlo (mostrarFiltroVendedor

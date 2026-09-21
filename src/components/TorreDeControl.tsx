@@ -24,6 +24,7 @@ import { ComparativoVentasAnual } from "@/components/ComparativoVentasAnual";
 import { ParticipacionPorCanal } from "@/components/ParticipacionPorCanal";
 import { MezclaCartera } from "@/components/MezclaCartera";
 import { BotonRevisarLompi } from "@/components/BotonRevisarLompi";
+import { AnuncioTemporal } from "@/components/AnuncioTemporal";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
 import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
 import type { Ventana, Semaforo } from "@/lib/types";
@@ -141,6 +142,11 @@ export async function TorreDeControl({
   // importar el filtro. Sin filtro, o si el id no resolvió a nadie, se cae al
   // resumen del área de siempre.
   const seleccionado = vendedorId ? filas[0] : undefined;
+  // Perfil completo (rol/email) del vendedor filtrado -- para el banner de
+  // anuncios temporales. Se resuelve aquí (no solo en /vendedor/[id]) porque
+  // dirección también filtra a un vendedor específico desde el dropdown de
+  // /maestro, sin pasar por esa página.
+  const personaSeleccionada = vendedorId ? personas.find((p) => p.id === vendedorId) : undefined;
   const resumen = seleccionado
     ? {
         titulo: `🎯 Mi Centro de Mando — ${seleccionado.nombre_corto}`,
@@ -242,6 +248,8 @@ export async function TorreDeControl({
           </Suspense>
         </div>
       )}
+
+      {personaSeleccionada && <AnuncioTemporal rol={personaSeleccionada.rol} correo={personaSeleccionada.email} />}
 
       {seleccionado && notasGestion.length > 0 && (
         <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
