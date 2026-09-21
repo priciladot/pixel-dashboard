@@ -812,35 +812,68 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
   const supabase = await createClient();
   let q = supabase
     .from("v_deals_operativo")
-    .select("como_llego, monto_atribuido_con_iva, monday_elemento_id, cerrado_ganado")
+    .select("vendedor_id, hubspot_id, como_llego, monto_atribuido_con_iva, monday_elemento_id, cerrado_ganado")
     .eq("periodo_id", periodoId);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q.limit(2000);
 
   const todas = (data as Array<{
-    como_llego: string | null; monto_atribuido_con_iva: number | null;
+    vendedor_id: string | null; hubspot_id: string; como_llego: string | null; monto_atribuido_con_iva: number | null;
     monday_elemento_id: string | null; cerrado_ganado: boolean | null;
   }>) ?? [];
 
   const sinRegistroMonday = todas.filter((r) => r.cerrado_ganado && !r.monday_elemento_id).length;
-  const filas = todas.filter((r) => r.monday_elemento_id);
+
+  // Solo negocios GANADOS capturados en Monday, sin duplicados: el mismo
+  // (vendedor, hubspot_id) repetido varias veces (items archivados que
+  // nunca se purgaron, visto con Mar) no debe inflar el desglose por canal.
+  // Mismo criterio de dedup que resultadoRealPorVendedor().
+  const vistos = new Set<string>();
+  const filas = todas.filter((r) => {
+    if (!r.monday_elemento_id || !r.cerrado_ganado) return false;
+    const clave = `${r.vendedor_id}-${r.hubspot_id}`;
+    if (vistos.has(clave)) return false;
+    vistos.add(clave);
+    return true;
+  });
+
+  // Reconciliar contra el mismo Resultado real (MAX Monday/HubSpot) que usan
+  // el Semáforo y el Centro de Mando: si el total de Monday de un vendedor
+  // quedó por debajo del oficial de HubSpot, se escala cada canal de ese
+  // vendedor proporcionalmente -- así el total de este módulo SIEMPRE
+  // coincide con el de las demás tarjetas, en vez de mostrar solo lo que
+  // Monday alcanzó a capturar.
+  const resultados = await resultadoRealPorVendedor(periodoId);
+  const sumaMondayPorVendedor = new Map<string, number>();
+  for (const r of filas) {
+    if (!r.vendedor_id) continue;
+    sumaMondayPorVendedor.set(r.vendedor_id, (sumaMondayPorVendedor.get(r.vendedor_id) ?? 0) + (r.monto_atribuido_con_iva ?? 0));
+  }
+  const factorPorVendedor = new Map<string, number>();
+  for (const [v, sumaMonday] of sumaMondayPorVendedor) {
+    const resultado = resultados.get(v)?.resultado ?? sumaMonday;
+    factorPorVendedor.set(v, sumaMonday > 0 ? resultado / sumaMonday : 1);
+  }
 
   const porTipoMapa = new Map<string, { deals: number; monto: number }>();
   const porCanalMapa = new Map<string, { deals: number; monto: number }>();
 
   for (const r of filas) {
+    const factor = r.vendedor_id ? (factorPorVendedor.get(r.vendedor_id) ?? 1) : 1;
+    const montoAjustado = (r.monto_atribuido_con_iva ?? 0) * factor;
+
     const tipo = r.como_llego
       ? (CANALES_CARTERA_EXISTENTE.has(r.como_llego.trim().toLowerCase()) ? "existente" : "nuevo")
       : "sin_canal";
     const t = porTipoMapa.get(tipo) ?? { deals: 0, monto: 0 };
     t.deals += 1;
-    t.monto += r.monto_atribuido_con_iva ?? 0;
+    t.monto += montoAjustado;
     porTipoMapa.set(tipo, t);
 
     if (r.como_llego) {
       const c = porCanalMapa.get(r.como_llego) ?? { deals: 0, monto: 0 };
       c.deals += 1;
-      c.monto += r.monto_atribuido_con_iva ?? 0;
+      c.monto += montoAjustado;
       porCanalMapa.set(r.como_llego, c);
     }
   }
@@ -866,34 +899,72 @@ export async function resumenOperativoMondayHistorico(vendedorId?: string): Prom
   const supabase = await createClient();
   let q = supabase
     .from("v_deals_operativo")
-    .select("como_llego, monto_atribuido_con_iva, monday_elemento_id, cerrado_ganado");
+    .select("periodo_id, vendedor_id, hubspot_id, como_llego, monto_atribuido_con_iva, monday_elemento_id, cerrado_ganado");
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
-  const { data } = await q.limit(20_000);
+  const [{ data }, kpiRes] = await Promise.all([
+    q.limit(20_000),
+    supabase.from("kpi_mensual").select("vendedor_id, periodo_id, venta_total_iva").eq("ventana", "calendario"),
+  ]);
 
   const todas = (data as Array<{
-    como_llego: string | null; monto_atribuido_con_iva: number | null;
+    periodo_id: string; vendedor_id: string | null; hubspot_id: string; como_llego: string | null; monto_atribuido_con_iva: number | null;
     monday_elemento_id: string | null; cerrado_ganado: boolean | null;
   }>) ?? [];
 
   const sinRegistroMonday = todas.filter((r) => r.cerrado_ganado && !r.monday_elemento_id).length;
-  const filas = todas.filter((r) => r.monday_elemento_id);
+
+  // Mismo dedup que la versión mensual: el mismo (vendedor, hubspot_id) no
+  // debe contarse más de una vez aunque Monday lo tenga repetido.
+  const vistos = new Set<string>();
+  const filas = todas.filter((r) => {
+    if (!r.monday_elemento_id || !r.cerrado_ganado) return false;
+    const clave = `${r.vendedor_id}-${r.hubspot_id}`;
+    if (vistos.has(clave)) return false;
+    vistos.add(clave);
+    return true;
+  });
+
+  // Reconciliación MAX(Monday, HubSpot) igual que la versión mensual, pero
+  // por cada combinación (vendedor, periodo) -- el factor de ajuste no es
+  // el mismo mes a mes, así que hay que aplicarlo periodo por periodo antes
+  // de sumar todo el histórico, para que el total de "toda la trayectoria"
+  // también cuadre con la suma de los Semáforos mensuales.
+  const oficialPorClave = new Map(
+    (kpiRes.data as Array<{ vendedor_id: string; periodo_id: string; venta_total_iva: number | null }> ?? [])
+      .map((k) => [`${k.vendedor_id}-${k.periodo_id}`, k.venta_total_iva ?? 0]),
+  );
+  const sumaMondayPorClave = new Map<string, number>();
+  for (const r of filas) {
+    if (!r.vendedor_id) continue;
+    const clave = `${r.vendedor_id}-${r.periodo_id}`;
+    sumaMondayPorClave.set(clave, (sumaMondayPorClave.get(clave) ?? 0) + (r.monto_atribuido_con_iva ?? 0));
+  }
+  const factorPorClave = new Map<string, number>();
+  for (const [clave, sumaMonday] of sumaMondayPorClave) {
+    const oficial = oficialPorClave.get(clave) ?? 0;
+    const resultado = Math.max(sumaMonday, oficial);
+    factorPorClave.set(clave, sumaMonday > 0 ? resultado / sumaMonday : 1);
+  }
 
   const porTipoMapa = new Map<string, { deals: number; monto: number }>();
   const porCanalMapa = new Map<string, { deals: number; monto: number }>();
 
   for (const r of filas) {
+    const factor = r.vendedor_id ? (factorPorClave.get(`${r.vendedor_id}-${r.periodo_id}`) ?? 1) : 1;
+    const montoAjustado = (r.monto_atribuido_con_iva ?? 0) * factor;
+
     const tipo = r.como_llego
       ? (CANALES_CARTERA_EXISTENTE.has(r.como_llego.trim().toLowerCase()) ? "existente" : "nuevo")
       : "sin_canal";
     const t = porTipoMapa.get(tipo) ?? { deals: 0, monto: 0 };
     t.deals += 1;
-    t.monto += r.monto_atribuido_con_iva ?? 0;
+    t.monto += montoAjustado;
     porTipoMapa.set(tipo, t);
 
     if (r.como_llego) {
       const c = porCanalMapa.get(r.como_llego) ?? { deals: 0, monto: 0 };
       c.deals += 1;
-      c.monto += r.monto_atribuido_con_iva ?? 0;
+      c.monto += montoAjustado;
       porCanalMapa.set(r.como_llego, c);
     }
   }
@@ -1194,6 +1265,29 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
   ]);
 
   const historico = (historicoRes.data as Array<{ anio: number; mes: number; venta_sin_iva: number; meta_con_iva: number | null }>) ?? [];
+
+  // El mes en curso (el que todavía se sigue cerrando) nunca debe quedarse
+  // con el número congelado a mano que se guardó en ventas_historico_mensual
+  // -- mientras el mes no termine, el total real cambia cada vez que cierra
+  // un negocio nuevo. Se sobreescribe con el MISMO cálculo MAX(Monday,
+  // HubSpot) que usan el Semáforo y el Centro de Mando (resultadoRealPor
+  // Vendedor), para que Ventas Totales, el Semáforo y el Centro de Mando
+  // nunca vuelvan a mostrar un número distinto para el mismo mes. Meses ya
+  // cerrados (anteriores) se dejan tal cual -- esos ya fueron confirmados a
+  // mano y el pipeline de Monday no tiene cobertura completa hacia atrás.
+  const hoy = new Date();
+  const anioActual = hoy.getUTCFullYear();
+  const mesActual = hoy.getUTCMonth() + 1;
+  const periodoActualId = `${anioActual}-${String(mesActual).padStart(2, "0")}`;
+  const resultadosMesActual = await resultadoRealPorVendedor(periodoActualId);
+  const totalMesActualConIva = Array.from(resultadosMesActual.values()).reduce((acc, r) => acc + r.resultado, 0);
+  if (totalMesActualConIva > 0) {
+    const ventaSinIvaLive = Math.round((totalMesActualConIva / 1.16) * 100) / 100;
+    const idx = historico.findIndex((h) => h.anio === anioActual && h.mes === mesActual);
+    if (idx >= 0) historico[idx] = { ...historico[idx], venta_sin_iva: ventaSinIvaLive };
+    else historico.push({ anio: anioActual, mes: mesActual, venta_sin_iva: ventaSinIvaLive, meta_con_iva: null });
+  }
+
   const porAnioMes = new Map(historico.map((h) => [`${h.anio}-${h.mes}`, h.venta_sin_iva]));
 
   const metaPorAnioMes = new Map(historico.filter((h) => h.meta_con_iva != null).map((h) => [`${h.anio}-${h.mes}`, h.meta_con_iva as number]));
