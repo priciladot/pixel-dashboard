@@ -1,6 +1,6 @@
 # Documentación Maestra del Ecosistema — Pixel Dashboard
 
-**Estado:** v3 — 2026-09-21 (agrega el módulo de Marketing; julio/agosto ya verificados contra la nueva regla de dinero; zona horaria ya corregida en el código)
+**Estado:** CERRADA — v3 final, validada por Pris el 2026-09-21.
 **Alcance:** Todo lo confirmado e implementado hasta esta fecha. No incluye nada especulativo; donde algo quedó como "decisión mía sin confirmar explícita", se marca así.
 
 ---
@@ -197,7 +197,20 @@ Racha de días "al día con WhatsApp"; badge de última vez que Lompi mandó dat
 Todo monto visible es **con IVA (16%)**, aunque Monday captura sin IVA. Conversión ×1.16 en `v_deals_operativo`.
 
 ### 8.2 Fuente única de verdad para dinero
-`resultadoRealPorVendedor(periodoId)` es la **única** función que calcula el resultado real por vendedor (regla 2.1) — la usan el Semáforo Maestro, la Comparativa de desempeño, el Centro de Mando, Ventas Totales del mes en curso y Participación por Canales.
+`resultadoRealPorVendedor(periodoId)` es la **única** función que calcula el resultado real por vendedor (regla 2.1). Verificación explícita, punto no negociable confirmado por Pris (2026-09-21): "cada vez que se actualicen o recarguen los montos mensuales y anuales, la información debe sincronizarse de manera automática e íntegra en TODOS los componentes del Dashboard Maestro y en cada Perfil Individual de Vendedor". Auditados los 8 módulos de dinero del dashboard, para el **periodo en curso** (el que cambia día a día):
+
+| Módulo | ¿Lee de `resultadoRealPorVendedor()`? |
+|---|---|
+| Reporte Semanal y Semáforos de Desempeño Comercial | Sí, directo |
+| Comparativa de Desempeño y Cumplimiento | Sí (ver 8.6 — corregido para que también aplique en vista individual) |
+| Mezcla de la Venta | Sí, vía el mismo mecanismo que la Comparativa |
+| % y Nivel de Cumplimiento | Sí, vía el mismo mecanismo |
+| Venta Oficial del Periodo (Centro de Mando) | Sí (mensual); en vista Anual usa el acumulado de `comparativoVentasAnual()` |
+| Participación por Canales de Origen | **No, por diseño** — solo cuenta negocios que sí están en Monday con canal real capturado; un negocio ganado solo en HubSpot (`ganado_sin_monday`) no tiene canal que mostrar, y no se le inventa ni se le reparte uno ficticio (decisión confirmada por Pris: mantener así). Su total puede ser menor al de los módulos de arriba cuando existen negocios en esa alerta. |
+| Desglose de Venta por Vendedor (Acumulado 2026) | **No** — lee `ventas_vendedor_anual`, tabla anual aparte. Motivo estructural: enero–junio 2026 no tuvieron sincronización activa (cero datos en HubSpot/Monday), así que `resultadoRealPorVendedor()` no puede calcular esos meses. |
+| Ventas Totales — Comparativo 2026 vs. 2025 | **Parcial** — el mes en curso sí se recalcula en vivo con `resultadoRealPorVendedor()`; los meses ya cerrados y todo 2025 usan `ventas_historico_mensual` (snapshot confirmado a mano), por el mismo motivo de cobertura incompleta hacia atrás. |
+
+Para historia anual/2025 es imposible que lean la misma función en vivo porque esos meses nunca tuvieron datos sincronizados que calcular — por eso existen esas tablas de respaldo, decisión estructural, no un descuido.
 
 ### 8.3 Semáforo Comercial (`metas_semaforo`)
 3 niveles (Verde/Amarillo/Rojo) por vendedor y mes, separados en Existentes/Nuevos, más Punto de Equilibrio individual — con IVA.
@@ -208,7 +221,10 @@ Rigen por Monday (`porcentaje_comision`, `monto_atribuido`). HubSpot solo entra 
 ### 8.5 Visibilidad por perfil (roles)
 `AppRole = "admin" | "supervisor" | "vendedor" | "marketing" | "marketing_lead"`. Ventas: `esDireccion` = admin/supervisor (Daniel incluido). Marketing: separado, nunca se mezcla con `esDireccion()` (ver Sección 3.1).
 
-### 8.6 Zona horaria — ya corregida en el código
+### 8.6 Bug de consistencia Dirección↔vendedor — encontrado y corregido (2026-09-21)
+Al verificar el punto 8.2, se encontró que `filasComparativa` (y de ahí `seleccionado`, que alimenta Centro de Mando, Mezcla de Cartera y % de Cumplimiento en `TorreDeControl`) **se saltaba** el ajuste de `aplicarResultadoRealAComparativa()` cuando había un vendedor filtrado — justo el caso de `/vendedor/[id]` y del dropdown de `/maestro`. Eso significaba que el propio vendedor podía ver, en su Centro de Mando, un número distinto al que Dirección veía de él en la tabla de equipo de `/maestro`. Corregido: el ajuste ahora se aplica siempre, sin excepción de vista. Validado contra los 7 vendedores reales de septiembre antes de desplegar — los números de vista individual y vista de equipo ya coinciden exacto.
+
+### 8.7 Zona horaria — ya corregida en el código
 Todo cálculo de "hoy"/"mes en curso" usa **America/Mexico_City**, no UTC. Se creó `src/lib/fecha.ts` con tres helpers (`hoyCDMX()`, `fechaHoyCDMX()`, `inicioDiaCDMX()`) y se corrigieron **todos** los puntos detectados: `periodoActivoDe`, la racha de Lompi, el Acelerador Semanal, `comparativoVentasAnual` (mes en curso), el desglose anual por vendedor, `semanaActualYVecinas`, `disciplinaComercial`, `proyeccionPipeline`, `tareasMarketing`, la etiqueta "En curso/Pasada/Próxima" de Disciplina Comercial en la UI, la táctica de la semana del Coach Comercial, y las 4 rutas de cron (`sincronizar-todo` — la única activa según `vercel.json` — y las 3 heredadas ya desconectadas del cron automático, actualizadas por consistencia). Los usos de `new Date().toISOString()` que comparan **timestamps completos** (no fechas de calendario) se dejaron igual a propósito — ahí no hay desfase posible, un instante UTC es el mismo instante sin importar la zona horaria.
 
 ---
@@ -237,12 +253,13 @@ Confirmado como política permanente: esta misma ruta de verificación aplica a 
 
 ## 11. Estado de ejecución de los pendientes
 
-1. ~~Vaciar `resultado_confirmado_vendedor`~~ — pendiente de esta misma sesión de trabajo, después de cerrar esta documentación.
-2. ~~Auditoría de zona horaria~~ — **ya ejecutada**, ver Sección 8.6.
+1. ~~Vaciar `resultado_confirmado_vendedor`~~ — **ya ejecutado** (7 filas → 0).
+2. ~~Auditoría de zona horaria~~ — **ya ejecutada**, ver Sección 8.7.
 3. ~~Validación de julio/agosto~~ — **ya ejecutada**, ver Sección 2.3.
-4. **Purga de items archivados de Monday** — sigue el protocolo de la Sección 10 (listado por vendedor primero, autorización uno por uno). Listado entregado por separado tras esta documentación.
-5. **Deal de CIE en HubSpot** — sigue facturándose completo para Odoo sin reflejar el split; Monday ya lo tiene bien dividido. No se ha decidido si conviene reflejar el split también en HubSpot (opción ofrecida, sin respuesta aún).
+4. ~~Verificación de los 8 módulos de dinero contra `resultadoRealPorVendedor()`~~ — **ya ejecutada**, ver Sección 8.2, incluyendo el bug de consistencia Dirección↔vendedor encontrado y corregido (Sección 8.6).
+5. **Purga de items archivados de Monday** — en curso, siguiendo el protocolo de la Sección 10 (listado por vendedor, autorización uno por uno). Estado: 4 de 5 casos de montos distintos ya resueltos por Pris; 1 caso (Erick, hubspot_id 64524449593) sigue pendiente de decisión antes de ejecutar cualquier borrado.
+6. **Deal de CIE en HubSpot** — sigue facturándose completo para Odoo sin reflejar el split; Monday ya lo tiene bien dividido. No se ha decidido si conviene reflejar el split también en HubSpot (opción ofrecida, sin respuesta aún).
 
 ---
 
-*Fin del documento v3.*
+*Fin del documento v3 — validada y cerrada por Pris el 2026-09-21.*
