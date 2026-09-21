@@ -19,7 +19,7 @@ import {
   buscarDeals, buscarDealsAbiertos, buscarDealsCreados,
   enriquecerConAsociaciones, enriquecerConOwners, listarOwners,
 } from "./hubspot";
-import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads } from "./hubspot-analitica";
+import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads, refrescarTareasPorId } from "./hubspot-analitica";
 import { listarCierres } from "./monday";
 import { listarKpisMarketing } from "./monday-marketing";
 import { listarMetricasCanal } from "./monday-canales";
@@ -89,6 +89,31 @@ export async function sincronizarTodo(
         buscarTodosLosEngagements(desde, hasta),
         buscarLeads(desde, hasta),
       ]);
+
+      // Reconciliación de tareas reagendadas: buscarTodosLosEngagements()
+      // encuentra tareas por su fecha de vencimiento ACTUAL -- si alguien
+      // reagenda una tarea que ya teníamos guardada como abierta este
+      // periodo hacia un mes futuro, ese filtro ya no la encuentra y se
+      // queda huérfana con la fecha vieja. Se refrescan por id, directo,
+      // las tareas que a la fecha en nuestra base siguen "abiertas este
+      // periodo" pero que la búsqueda de arriba no volvió a traer -- así se
+      // corrige (o se completa) su fecha real en la misma corrida.
+      const idsYaTraidos = new Set((engagements.porTipo.task ?? []).map((t) => t.hubspot_id));
+      const { data: tareasAbiertasGuardadas } = await db
+        .from("hubspot_engagements")
+        .select("hubspot_id")
+        .eq("tipo", "task")
+        .neq("estado", "COMPLETED")
+        .gte("fecha", `${desde}T00:00:00.000Z`)
+        .lte("fecha", `${hasta}T23:59:59.999Z`);
+      const idsAReconciliar = ((tareasAbiertasGuardadas as Array<{ hubspot_id: string }>) ?? [])
+        .map((t) => t.hubspot_id)
+        .filter((id) => !idsYaTraidos.has(id));
+      if (idsAReconciliar.length > 0) {
+        const refrescadas = await refrescarTareasPorId(idsAReconciliar);
+        engagements.porTipo.task = [...(engagements.porTipo.task ?? []), ...refrescadas];
+      }
+
       const r = await ingestarAnaliticaHubspot(db, { etapas, engagements, leads }, { periodoId, simulacion });
       return {
         ingestaId: r.ingestaId, etapas: r.etapas, engagementsPorTipo: r.engagementsPorTipo,

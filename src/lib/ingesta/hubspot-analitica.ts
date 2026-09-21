@@ -456,6 +456,36 @@ export async function buscarTodosLosEngagements(desde: string, hasta: string): P
   return resultado;
 }
 
+/**
+ * Refresca tareas puntuales por id, directo contra HubSpot (no por rango de
+ * fecha) -- necesario porque buscarEngagements() busca tareas por su
+ * hs_timestamp (fecha de vencimiento) ACTUAL: si alguien reagenda una tarea
+ * fuera del periodo que se está sincronizando (ej. de septiembre a
+ * octubre), la próxima corrida ya no la vuelve a encontrar con ese filtro
+ * -- queda huérfana en la base con la fecha vieja para siempre, hasta que
+ * ese mes futuro se vuelva el periodo activo. Se usa junto con las tareas
+ * que YA tenemos guardadas como abiertas dentro del periodo en curso (ver
+ * sincronizarTodo()), para detectar y corregir ese reagendado a tiempo.
+ */
+export async function refrescarTareasPorId(ids: string[]): Promise<EngagementCrudo[]> {
+  const unicos = [...new Set(ids)].filter(Boolean);
+  if (unicos.length === 0) return [];
+
+  const lotes: string[][] = [];
+  for (let i = 0; i < unicos.length; i += 100) lotes.push(unicos.slice(i, i + 100));
+
+  const resultados = await Promise.all(lotes.map((lote) =>
+    api<{ results: EngagementApi[] }>("/crm/v3/objects/tasks/batch/read", {
+      method: "POST",
+      body: JSON.stringify({ properties: PROPIEDADES_POR_TIPO.task, inputs: lote.map((id) => ({ id })) }),
+    }),
+  ));
+  const crudos = resultados.flatMap((r) => r.results.map((e) => aEngagementCrudo("task", e)));
+
+  const enriquecido = await enriquecerEngagementsConAsociaciones({ task: crudos });
+  return enriquecido.porTipo.task ?? [];
+}
+
 /* ------------------------------------------------------------------ */
 /* 3. Contactos — solo el email, para completar Foco Rojos/Pipeline    */
 /*    cuando el negocio no tiene nada capturado todavía en Monday.     */
