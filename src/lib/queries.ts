@@ -947,11 +947,12 @@ function semaforoDe(resultado: number, verde: number, amarillo: number): "verde"
 export async function reporteSemaforoComercial(periodoId: string): Promise<{ filas: FilaSemaforoComercial[]; total: FilaSemaforoComercial }> {
   const supabase = await createClient();
 
-  const [metasRes, dealsRes, perfilesRes] = await Promise.all([
+  const [metasRes, dealsRes, perfilesRes, kpiRes] = await Promise.all([
     supabase.from("metas_semaforo").select("*").eq("periodo_id", periodoId),
     supabase.from("v_deals_operativo").select("vendedor_id, como_llego, monto_atribuido_con_iva, cerrado_ganado")
       .eq("periodo_id", periodoId).not("monday_elemento_id", "is", null).eq("cerrado_ganado", true),
     supabase.from("profiles").select("id, nombre_corto"),
+    supabase.from("kpi_mensual").select("vendedor_id, venta_total_iva").eq("periodo_id", periodoId).eq("ventana", "calendario"),
   ]);
 
   const metas = (metasRes.data as Array<{
@@ -960,6 +961,9 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
   }>) ?? [];
   const deals = (dealsRes.data as Array<{ vendedor_id: string | null; como_llego: string | null; monto_atribuido_con_iva: number | null }>) ?? [];
   const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
+  const ventaOficialPorVendedor = new Map(
+    (kpiRes.data as Array<{ vendedor_id: string; venta_total_iva: number | null }> ?? []).map((k) => [k.vendedor_id, k.venta_total_iva ?? 0]),
+  );
 
   const resultadosPorVendedor = new Map<string, { existentes: number; nuevos: number }>();
   for (const d of deals) {
@@ -972,8 +976,22 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
   }
 
   const filas: FilaSemaforoComercial[] = metas.map((m) => {
-    const r = resultadosPorVendedor.get(m.vendedor_id) ?? { existentes: 0, nuevos: 0 };
-    const resultado = r.existentes + r.nuevos;
+    const rMonday = resultadosPorVendedor.get(m.vendedor_id) ?? { existentes: 0, nuevos: 0 };
+    const sumaMonday = rMonday.existentes + rMonday.nuevos;
+    // El total ACUMULADO tiene que cuadrar exacto con la cifra oficial de
+    // HubSpot (kpi_mensual.venta_total_iva) -- Pris lo confirmó dando la
+    // lista exacta de totales que debía dar cada vendedor. Monday solo se
+    // usa para la PROPORCIÓN existentes/nuevos (no como monto absoluto),
+    // repartiendo ese total oficial -- así nunca se desvía el acumulado,
+    // aunque Monday atribuya un monto combinado distinto por deal.
+    const oficial = ventaOficialPorVendedor.get(m.vendedor_id) ?? sumaMonday;
+    const pctExistentes = sumaMonday > 0 ? rMonday.existentes / sumaMonday : 0;
+    const r = {
+      existentes: Math.round(oficial * pctExistentes * 100) / 100,
+      nuevos: 0,
+    };
+    r.nuevos = Math.round((oficial - r.existentes) * 100) / 100;
+    const resultado = oficial;
     const objetivo = m.existentes_verde + m.nuevos_verde;
     return {
       vendedorId: m.vendedor_id,
