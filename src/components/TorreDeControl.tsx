@@ -20,6 +20,7 @@ import { Filtros } from "@/components/Filtros";
 import { TablaComparativa } from "@/components/TablaComparativa";
 import { ReporteSemaforoComercial } from "@/components/ReporteSemaforoComercial";
 import { ComparativoVentasAnual } from "@/components/ComparativoVentasAnual";
+import { ParticipacionPorCanal } from "@/components/ParticipacionPorCanal";
 import { MezclaCartera } from "@/components/MezclaCartera";
 import { BotonRevisarLompi } from "@/components/BotonRevisarLompi";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
@@ -394,6 +395,20 @@ export async function TorreDeControl({
           descripcion="Venta mensual sin/con IVA de ambos años, variación año contra año, y avance contra la Meta Anual."
         >
           <ComparativoVentasAnual />
+        </Seccion>
+      )}
+
+      {/* Participación por Canales de Origen -- misma alternancia Mensual/
+          Anual que el Centro de Mando de arriba (selector "Alcance"). */}
+      {!seleccionado && (
+        <Seccion
+          titulo="📡 Participación por Canales de Origen"
+          descripcion={alcanceAnual ? `Acumulado del año (histórico completo en Monday).` : `${periodo.etiqueta} -- cambia con el selector de Mes de arriba.`}
+        >
+          <ParticipacionPorCanal
+            porCanal={alcanceAnual ? operativoMondayHistorico.porCanal : operativoMonday.porCanal}
+            etiqueta={alcanceAnual ? "Acumulado del año" : periodo.etiqueta}
+          />
         </Seccion>
       )}
 
