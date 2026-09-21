@@ -908,6 +908,116 @@ export async function resumenOperativoMondayHistorico(vendedorId?: string): Prom
   };
 }
 
+export interface FilaSemaforoComercial {
+  vendedorId: string;
+  nombre: string;
+  existentesVerde: number;
+  existentesAmarillo: number;
+  resultadoExistentes: number;
+  semaforoExistentes: "verde" | "amarillo" | "rojo";
+  nuevosVerde: number;
+  nuevosAmarillo: number;
+  resultadoNuevos: number;
+  semaforoNuevos: "verde" | "amarillo" | "rojo";
+  restantePE: number;
+  objetivo: number;
+  puntoEquilibrio: number;
+  resultado: number;
+  resta: number;
+}
+
+function semaforoDe(resultado: number, verde: number, amarillo: number): "verde" | "amarillo" | "rojo" {
+  if (resultado >= verde) return "verde";
+  if (resultado >= amarillo) return "amarillo";
+  return "rojo";
+}
+
+/**
+ * Reporte Semanal y Semáforos de Desempeño Comercial (Dashboard Maestro):
+ * 3 niveles de meta (Verde/Amarillo/Rojo) por Existentes y por Nuevos,
+ * Punto de Equilibrio individual, y el acumulado del mes -- todo con IVA.
+ *
+ * "Resultados" se saca de v_deals_operativo (el monto que Monday tiene
+ * atribuido a cada vendedor, ya con IVA) -- a propósito NO es
+ * kpi_mensual.venta_total_iva (el oficial de HubSpot): Pris pidió
+ * explícitamente que el resultado de este reporte viniera "de Monday",
+ * y confirmó que puede diferir del total oficial de HubSpot cuando
+ * Monday atribuye manualmente un monto combinado a un cierre.
+ */
+export async function reporteSemaforoComercial(periodoId: string): Promise<{ filas: FilaSemaforoComercial[]; total: FilaSemaforoComercial }> {
+  const supabase = await createClient();
+
+  const [metasRes, dealsRes, perfilesRes] = await Promise.all([
+    supabase.from("metas_semaforo").select("*").eq("periodo_id", periodoId),
+    supabase.from("v_deals_operativo").select("vendedor_id, como_llego, monto_atribuido_con_iva, cerrado_ganado")
+      .eq("periodo_id", periodoId).not("monday_elemento_id", "is", null).eq("cerrado_ganado", true),
+    supabase.from("profiles").select("id, nombre_corto"),
+  ]);
+
+  const metas = (metasRes.data as Array<{
+    vendedor_id: string; existentes_verde: number; existentes_amarillo: number;
+    nuevos_verde: number; nuevos_amarillo: number; punto_equilibrio: number;
+  }>) ?? [];
+  const deals = (dealsRes.data as Array<{ vendedor_id: string | null; como_llego: string | null; monto_atribuido_con_iva: number | null }>) ?? [];
+  const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
+
+  const resultadosPorVendedor = new Map<string, { existentes: number; nuevos: number }>();
+  for (const d of deals) {
+    if (!d.vendedor_id) continue;
+    const canal = (d.como_llego ?? "").trim().toLowerCase();
+    const esExistente = CANALES_CARTERA_EXISTENTE.has(canal);
+    const r = resultadosPorVendedor.get(d.vendedor_id) ?? { existentes: 0, nuevos: 0 };
+    if (esExistente) r.existentes += d.monto_atribuido_con_iva ?? 0; else r.nuevos += d.monto_atribuido_con_iva ?? 0;
+    resultadosPorVendedor.set(d.vendedor_id, r);
+  }
+
+  const filas: FilaSemaforoComercial[] = metas.map((m) => {
+    const r = resultadosPorVendedor.get(m.vendedor_id) ?? { existentes: 0, nuevos: 0 };
+    const resultado = r.existentes + r.nuevos;
+    const objetivo = m.existentes_verde + m.nuevos_verde;
+    return {
+      vendedorId: m.vendedor_id,
+      nombre: nombresPorId.get(m.vendedor_id) ?? "Sin asignar",
+      existentesVerde: m.existentes_verde,
+      existentesAmarillo: m.existentes_amarillo,
+      resultadoExistentes: r.existentes,
+      semaforoExistentes: semaforoDe(r.existentes, m.existentes_verde, m.existentes_amarillo),
+      nuevosVerde: m.nuevos_verde,
+      nuevosAmarillo: m.nuevos_amarillo,
+      resultadoNuevos: r.nuevos,
+      semaforoNuevos: semaforoDe(r.nuevos, m.nuevos_verde, m.nuevos_amarillo),
+      restantePE: Math.max(0, m.punto_equilibrio - resultado),
+      objetivo,
+      puntoEquilibrio: m.punto_equilibrio,
+      resultado,
+      resta: objetivo - resultado,
+    };
+  });
+
+  const suma = (f: (fila: FilaSemaforoComercial) => number) => filas.reduce((acc, fila) => acc + f(fila), 0);
+  const resultadoTotal = suma((f) => f.resultado);
+  const objetivoTotal = suma((f) => f.objetivo);
+  const total: FilaSemaforoComercial = {
+    vendedorId: "total",
+    nombre: "Total Acumulado por Área Comercial",
+    existentesVerde: suma((f) => f.existentesVerde),
+    existentesAmarillo: suma((f) => f.existentesAmarillo),
+    resultadoExistentes: suma((f) => f.resultadoExistentes),
+    semaforoExistentes: semaforoDe(suma((f) => f.resultadoExistentes), suma((f) => f.existentesVerde), suma((f) => f.existentesAmarillo)),
+    nuevosVerde: suma((f) => f.nuevosVerde),
+    nuevosAmarillo: suma((f) => f.nuevosAmarillo),
+    resultadoNuevos: suma((f) => f.resultadoNuevos),
+    semaforoNuevos: semaforoDe(suma((f) => f.resultadoNuevos), suma((f) => f.nuevosVerde), suma((f) => f.nuevosAmarillo)),
+    restantePE: suma((f) => f.restantePE),
+    objetivo: objetivoTotal,
+    puntoEquilibrio: suma((f) => f.puntoEquilibrio),
+    resultado: resultadoTotal,
+    resta: objetivoTotal - resultadoTotal,
+  };
+
+  return { filas, total };
+}
+
 /* ------------------------------------------------------------------ */
 /* Alertas de higiene y auditoría comercial (HubSpot vs. Monday)        */
 /* ------------------------------------------------------------------ */

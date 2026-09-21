@@ -17,6 +17,7 @@ import {
 import { Card, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { TablaComparativa } from "@/components/TablaComparativa";
+import { ReporteSemaforoComercial } from "@/components/ReporteSemaforoComercial";
 import { MezclaCartera } from "@/components/MezclaCartera";
 import { BotonRevisarLompi } from "@/components/BotonRevisarLompi";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
@@ -309,6 +310,18 @@ export async function TorreDeControl({
               porcentaje de cumplimiento reportado. Captúralos desde el semáforo para que el comparativo sea exacto.
             </p>
           )}
+        </Seccion>
+      )}
+
+      {/* Reporte Semanal y Semáforos de Desempeño Comercial -- 3 niveles de
+          meta (Verde/Amarillo/Rojo) por Existentes y Nuevos + Punto de
+          Equilibrio individual, todo con IVA. Solo vista de equipo. */}
+      {!seleccionado && (
+        <Seccion
+          titulo="🚦 Reporte Semanal y Semáforos de Desempeño Comercial"
+          descripcion={`${periodo.etiqueta} -- metas de 3 niveles por Existentes/Nuevos y Punto de Equilibrio individual, todo con IVA.`}
+        >
+          <ReporteSemaforoComercial periodoId={periodoId} etiquetaPeriodo={periodo.etiqueta} />
         </Seccion>
       )}
 
