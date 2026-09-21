@@ -1042,19 +1042,33 @@ export interface ResultadoRealVendedor {
  * ej. Pris/Roxana) y a veces HubSpot tiene más (negocios ganados que
  * nunca se registraron en Monday, ej. Gaby). El vendedor nunca debe
  * salir perjudicado por el lado que se quede corto.
+ *
+ * Si existe una fila en `resultado_confirmado_vendedor` para ese
+ * vendedor/periodo, esa cifra gana sobre el cálculo MAX -- es la que Pris
+ * revisó a mano contra los negocios reales, y ni Monday ni HubSpot por sí
+ * solos capturan siempre el número correcto (confirmado 2026-09-20: sept.
+ * dio $4,990,382.80 real, no los $5,137,418.60 que salían del MAX).
  */
 export async function resultadoRealPorVendedor(periodoId: string): Promise<Map<string, ResultadoRealVendedor>> {
   const supabase = await createClient();
 
-  const [dealsRes, kpiRes] = await Promise.all([
+  const [dealsRes, kpiRes, confirmadoRes] = await Promise.all([
     supabase.from("v_deals_operativo").select("vendedor_id, hubspot_id, como_llego, monto_atribuido_con_iva, cerrado_ganado")
       .eq("periodo_id", periodoId).not("monday_elemento_id", "is", null).eq("cerrado_ganado", true),
     supabase.from("kpi_mensual").select("vendedor_id, venta_total_iva").eq("periodo_id", periodoId).eq("ventana", "calendario"),
+    supabase.from("resultado_confirmado_vendedor").select("vendedor_id, monto_con_iva").eq("periodo_id", periodoId),
   ]);
 
   const dealsCrudos = (dealsRes.data as Array<{ vendedor_id: string | null; hubspot_id: string; como_llego: string | null; monto_atribuido_con_iva: number | null }>) ?? [];
   const ventaOficialPorVendedor = new Map(
     (kpiRes.data as Array<{ vendedor_id: string; venta_total_iva: number | null }> ?? []).map((k) => [k.vendedor_id, k.venta_total_iva ?? 0]),
+  );
+  // Última palabra: si Pris confirmó a mano el resultado real de un
+  // vendedor/mes (porque encontró un error puntual en Monday o HubSpot que
+  // ninguna de las dos fuentes resuelve por sí sola), ese número gana sobre
+  // cualquier cálculo automático MAX(Monday, oficial).
+  const confirmadoPorVendedor = new Map(
+    (confirmadoRes.data as Array<{ vendedor_id: string; monto_con_iva: number }> ?? []).map((c) => [c.vendedor_id, c.monto_con_iva]),
   );
 
   // Un mismo (vendedor, hubspot_id) NUNCA debería tener más de una fila en
@@ -1082,24 +1096,26 @@ export async function resultadoRealPorVendedor(periodoId: string): Promise<Map<s
     resultadosPorVendedor.set(d.vendedor_id, r);
   }
 
-  const vendedorIds = new Set([...resultadosPorVendedor.keys(), ...ventaOficialPorVendedor.keys()]);
+  const vendedorIds = new Set([...resultadosPorVendedor.keys(), ...ventaOficialPorVendedor.keys(), ...confirmadoPorVendedor.keys()]);
   const salida = new Map<string, ResultadoRealVendedor>();
   for (const vendedorId of vendedorIds) {
     const rMonday = resultadosPorVendedor.get(vendedorId) ?? { existentes: 0, nuevos: 0 };
     const sumaMonday = rMonday.existentes + rMonday.nuevos;
     const oficial = ventaOficialPorVendedor.get(vendedorId) ?? 0;
-    const resultado = Math.max(sumaMonday, oficial);
+    const confirmado = confirmadoPorVendedor.get(vendedorId);
+    const resultado = confirmado ?? Math.max(sumaMonday, oficial);
 
     if (resultado === sumaMonday) {
       // Monday manda -- ya suma exacto al resultado, se usa tal cual.
       salida.set(vendedorId, { existentes: rMonday.existentes, nuevos: rMonday.nuevos, resultado });
     } else {
-      // La cifra oficial es mayor: se reparte con la MISMA proporción
-      // Existentes/Nuevos que ya muestra Monday, escalada para que la suma
-      // dé exacto el oficial (sin Monday que repartir, todo va a Nuevos).
+      // El resultado (confirmado a mano, u oficial de HubSpot) es distinto
+      // a lo que suma Monday: se reparte con la MISMA proporción Existentes/
+      // Nuevos que ya muestra Monday, escalada para que la suma dé exacto
+      // el resultado (sin Monday que repartir, todo va a Nuevos).
       const pctExistentes = sumaMonday > 0 ? rMonday.existentes / sumaMonday : 0;
-      const existentes = Math.round(oficial * pctExistentes * 100) / 100;
-      salida.set(vendedorId, { existentes, nuevos: Math.round((oficial - existentes) * 100) / 100, resultado });
+      const existentes = Math.round(resultado * pctExistentes * 100) / 100;
+      salida.set(vendedorId, { existentes, nuevos: Math.round((resultado - existentes) * 100) / 100, resultado });
     }
   }
   return salida;
