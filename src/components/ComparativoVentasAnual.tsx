@@ -9,7 +9,7 @@ import { dinero } from "@/lib/format";
  * ventas_historico_mensual, no hay sincronización automática todavía.
  */
 export async function ComparativoVentasAnual() {
-  const { filas, meta } = await comparativoVentasAnual();
+  const { filas, meta, porVendedor } = await comparativoVentasAnual();
 
   const total2025SinIva = filas.reduce((acc, f) => acc + (f.venta2025SinIva ?? 0), 0);
   const total2026SinIva = filas.reduce((acc, f) => acc + (f.venta2026SinIva ?? 0), 0);
@@ -76,10 +76,49 @@ export async function ComparativoVentasAnual() {
           </table>
         </div>
         <p className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
-          2025 es una cifra fija (no viene de una sincronización, este dashboard arrancó en 2026). 2026 sale de HubSpot, solo meses ya cerrados --
-          los meses futuros muestran "—". "Con IVA" = sin IVA × 1.16.
+          2025 y 2026 son cifras fijas que dio Pris (no vienen de una sincronización automática) -- los meses futuros muestran "—". "Con IVA" = sin
+          IVA × 1.16.
         </p>
       </Card>
+
+      {porVendedor.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="border-b border-line px-4 py-2.5 text-[12px] font-semibold text-ink">
+            Desglose de venta por vendedor — acumulado {meta?.anio ?? ""}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-[12px]">
+              <thead>
+                <tr className="border-b border-line text-left text-[10px] uppercase tracking-wide text-ink-muted">
+                  <th className="px-3 py-2 font-medium">Vendedor</th>
+                  <th className="px-3 py-2 font-medium">Sin IVA</th>
+                  <th className="px-3 py-2 font-medium">Con IVA</th>
+                  <th className="px-3 py-2 font-medium">% participación</th>
+                </tr>
+              </thead>
+              <tbody>
+                {porVendedor.map((v) => (
+                  <tr key={v.vendedorId} className="border-b border-line/70 last:border-0">
+                    <td className="px-3 py-2 font-medium text-ink">{v.nombre}</td>
+                    <td className="px-3 py-2 tabular text-ink-soft">{dinero(v.ventaSinIva)}</td>
+                    <td className="px-3 py-2 tabular text-ink-soft">{dinero(v.ventaConIva)}</td>
+                    <td className="px-3 py-2 tabular text-ink-soft">{v.pctParticipacion.toFixed(2)}%</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-line bg-surface-sunk font-semibold">
+                  <td className="px-3 py-2 text-ink">Total</td>
+                  <td className="px-3 py-2 tabular text-ink">{dinero(porVendedor.reduce((acc, v) => acc + v.ventaSinIva, 0))}</td>
+                  <td className="px-3 py-2 tabular text-ink">{dinero(porVendedor.reduce((acc, v) => acc + v.ventaConIva, 0))}</td>
+                  <td className="px-3 py-2 tabular text-ink">100.00%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] text-ink-muted">
+            Cifra fija que dio Pris para el año completo -- % participación es contra el total de esta tabla (con IVA).
+          </p>
+        </Card>
+      )}
     </div>
   );
 }

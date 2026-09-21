@@ -1157,9 +1157,18 @@ export interface MetaAnual {
   notas: string | null;
 }
 
+export interface FilaVentaVendedorAnual {
+  vendedorId: string;
+  nombre: string;
+  ventaSinIva: number;
+  ventaConIva: number;
+  pctParticipacion: number;
+}
+
 export interface ComparativoVentas {
   filas: FilaComparativoAnual[];
   meta: MetaAnual | null;
+  porVendedor: FilaVentaVendedorAnual[];
 }
 
 const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -1174,9 +1183,11 @@ const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "S
 export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
   const supabase = await createClient();
 
-  const [historicoRes, metaRes] = await Promise.all([
+  const [historicoRes, metaRes, porVendedorRes, perfilesRes] = await Promise.all([
     supabase.from("ventas_historico_mensual").select("anio, mes, venta_sin_iva"),
     supabase.from("metas_anuales").select("*").order("anio", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("ventas_vendedor_anual").select("vendedor_id, anio, venta_sin_iva"),
+    supabase.from("profiles").select("id, nombre_corto"),
   ]);
 
   const historico = (historicoRes.data as Array<{ anio: number; mes: number; venta_sin_iva: number }>) ?? [];
@@ -1221,7 +1232,25 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
     notas: m.notas,
   } : null;
 
-  return { filas, meta };
+  const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
+  const anioVendedor = m?.anio ?? new Date().getFullYear();
+  const filasVendedor = (porVendedorRes.data as Array<{ vendedor_id: string; anio: number; venta_sin_iva: number }> ?? [])
+    .filter((v) => v.anio === anioVendedor);
+  const totalVendedorConIva = filasVendedor.reduce((acc, v) => acc + v.venta_sin_iva * 1.16, 0);
+  const porVendedor: FilaVentaVendedorAnual[] = filasVendedor
+    .map((v) => {
+      const ventaConIva = Math.round(v.venta_sin_iva * 1.16 * 100) / 100;
+      return {
+        vendedorId: v.vendedor_id,
+        nombre: nombresPorId.get(v.vendedor_id) ?? "Sin asignar",
+        ventaSinIva: v.venta_sin_iva,
+        ventaConIva,
+        pctParticipacion: totalVendedorConIva > 0 ? Math.round((ventaConIva / totalVendedorConIva) * 10000) / 100 : 0,
+      };
+    })
+    .sort((a, b) => b.ventaConIva - a.ventaConIva);
+
+  return { filas, meta, porVendedor };
 }
 
 /* ------------------------------------------------------------------ */
