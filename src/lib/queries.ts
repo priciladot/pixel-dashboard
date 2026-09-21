@@ -2205,10 +2205,10 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
         return (data as Array<{ hubspot_id: string }>) ?? [];
       })(),
       (async () => {
-        const { data } = await supabase.from("hubspot_engagements").select("hubspot_id, asunto, fecha, estado, deal_id_ref")
+        const { data } = await supabase.from("hubspot_engagements").select("hubspot_id, asunto, fecha, estado, deal_id_ref, contact_id_ref")
           .eq("vendedor_id", vendedorId).eq("tipo", "task")
           .gte("fecha", inicioTs).lte("fecha", finTs);
-        return (data as Array<{ hubspot_id: string; asunto: string | null; fecha: string | null; estado: string | null; deal_id_ref: string | null }>) ?? [];
+        return (data as Array<{ hubspot_id: string; asunto: string | null; fecha: string | null; estado: string | null; deal_id_ref: string | null; contact_id_ref: string | null }>) ?? [];
       })(),
       (async () => {
         const { data } = await supabase.from("hubspot_engagements").select("hubspot_id")
@@ -2228,7 +2228,7 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
     const tareasCompletadas = tareas.filter((t) => t.estado === "COMPLETED").length;
     const tareasFaltantes = tareas
       .filter((t) => t.estado !== "COMPLETED")
-      .map((t) => ({ hubspot_id: t.hubspot_id, asunto: t.asunto, fecha: t.fecha, deal_id_ref: t.deal_id_ref }));
+      .map((t) => ({ hubspot_id: t.hubspot_id, asunto: t.asunto, fecha: t.fecha, deal_id_ref: t.deal_id_ref, contact_id_ref: t.contact_id_ref }));
     const estatusCrm: EstatusReto =
       tareasAsignadas === 0 ? "sin_dato" :
       tareasCompletadas === tareasAsignadas ? "cumplido" :
@@ -2252,26 +2252,40 @@ export async function disciplinaComercial(periodoId: string, vendedorId: string)
     };
   }));
 
-  // El asunto de la tarea ("evento nov") no dice nada por sí solo -- se
-  // enriquece con el nombre real del negocio y el correo del contacto
-  // (mismo cruce que ya usa dealsEstancados) para que sea accionable sin
-  // tener que ir a buscarlo a mano en HubSpot.
+  // El asunto de la tarea ("remark", "evento nov"...) no dice nada por sí
+  // solo -- se enriquece con el nombre real del negocio y el correo del
+  // contacto (mismo cruce que ya usa dealsEstancados) para que sea
+  // accionable sin tener que ir a buscarlo a mano en HubSpot. Muchas tareas
+  // (ej. "remark") no tienen negocio asociado en HubSpot, solo un contacto
+  // directo -- para esas se resuelve el correo por contact_id_ref, no solo
+  // por deal_id_ref, si no, el vendedor no tiene forma de saber a quién se
+  // refiere la tarea.
   const dealIdsTareas = [...new Set(
     base.flatMap((b) => b.tareasFaltantes.map((t) => t.deal_id_ref).filter((id): id is string => id != null)),
   )];
-  const [{ data: negociosData }, mapaCorreoTareas] = await Promise.all([
+  const contactIdsTareas = [...new Set(
+    base.flatMap((b) => b.tareasFaltantes.map((t) => t.contact_id_ref).filter((id): id is string => id != null)),
+  )];
+  const [{ data: negociosData }, mapaCorreoTareas, { data: contactosData }] = await Promise.all([
     supabase.from("hubspot_deals").select("hubspot_id, nombre").in("hubspot_id", dealIdsTareas),
     correoDeContactoPorDeal(supabase, dealIdsTareas),
+    supabase.from("hubspot_contacts").select("hubspot_id, email").in("hubspot_id", contactIdsTareas),
   ]);
   const mapaNegocioTareas = new Map(
     ((negociosData as Array<{ hubspot_id: string; nombre: string | null }>) ?? []).map((n) => [n.hubspot_id, n.nombre]),
+  );
+  const mapaCorreoContactoDirecto = new Map(
+    ((contactosData as Array<{ hubspot_id: string; email: string | null }>) ?? []).map((c) => [c.hubspot_id, c.email]),
   );
   const baseEnriquecida = base.map((b) => ({
     ...b,
     tareasFaltantes: b.tareasFaltantes.map((t) => ({
       ...t,
       negocio: t.deal_id_ref ? mapaNegocioTareas.get(t.deal_id_ref) ?? null : null,
-      correo: t.deal_id_ref ? mapaCorreoTareas.get(t.deal_id_ref) ?? null : null,
+      correo:
+        (t.deal_id_ref ? mapaCorreoTareas.get(t.deal_id_ref) : null) ??
+        (t.contact_id_ref ? mapaCorreoContactoDirecto.get(t.contact_id_ref) : null) ??
+        null,
     })),
   }));
 
