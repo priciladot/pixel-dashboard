@@ -6,7 +6,7 @@ import {
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
   proyeccionPipeline, pendientesLompiAbiertos, rachaLompiWhatsapp, progresoAceleradorSemanal, estadoLompi,
-  aplicarResultadoRealAComparativa,
+  aplicarResultadoRealAComparativa, reporteSemaforoComercial, semaforoMetaPe, comparativoVentasAnual,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type PendienteLompi, type AceleradorSemanal, type EstadoLompi,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
@@ -24,7 +24,7 @@ import { MezclaCartera } from "@/components/MezclaCartera";
 import { BotonRevisarLompi } from "@/components/BotonRevisarLompi";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
 import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
-import type { Ventana } from "@/lib/types";
+import type { Ventana, Semaforo } from "@/lib/types";
 
 /**
  * Torre de Control: los 4 Bloques completos, sin recortar herramientas de
@@ -45,16 +45,18 @@ import type { Ventana } from "@/lib/types";
  *    un vendedor vea el filtro de otro compañero.
  */
 export async function TorreDeControl({
-  periodoIdParam, ventanaParam, vistaParam, vendedorIdForzado, mostrarFiltroVendedor, mostrarEncabezado,
+  periodoIdParam, ventanaParam, vistaParam, alcanceParam, vendedorIdForzado, mostrarFiltroVendedor, mostrarEncabezado,
 }: {
   periodoIdParam?: string;
   ventanaParam?: string;
   vistaParam?: string;
+  alcanceParam?: string;
   vendedorIdForzado?: string;
   mostrarFiltroVendedor: boolean;
   mostrarEncabezado: boolean;
 }) {
   const vendedorId = vendedorIdForzado;
+  const alcanceAnual = !vendedorId && alcanceParam === "anio";
 
   const lista = await periodos();
   if (lista.length === 0) {
@@ -112,6 +114,15 @@ export async function TorreDeControl({
   // que la Comparativa nunca muestre un número distinto al del Semáforo
   // para el mismo vendedor -- solo aplica en vista de equipo.
   const filasComparativa = vendedorId ? filas : await aplicarResultadoRealAComparativa(filas, periodoId);
+  // Mismo criterio que el Semáforo/Comparativa para el Centro de Mando del
+  // área -- antes leía periodo_resumen_area (otra tabla, capturada aparte)
+  // y no coincidía con el total que ya se ve más abajo en la pantalla.
+  const semaforoAreaTotal = vendedorId ? null : (await reporteSemaforoComercial(periodoId)).total;
+  // Vista Anual (YTD): el Centro de Mando cambia a venta acumulada del año
+  // vs. Meta Anual, sin perder el detalle por vendedor de más abajo (el
+  // Comparativo de Ventas Anual ya lo muestra siempre, sin importar el mes
+  // elegido arriba).
+  const anualData = alcanceAnual ? await comparativoVentasAnual() : null;
   const tareasAtrasadas = tareas.filter((t) => t.atrasada).length;
   const mapaVendedores = new Map(personas.map((p) => [p.id, p.nombre_corto]));
   const nombresVendedores = nombresDeVendedores(mapaVendedores);
@@ -145,23 +156,64 @@ export async function TorreDeControl({
         monto_marketing_sin_iva: null as number | null,
         ciclo_cierre_promedio: seleccionado.ciclo_cierre_dias,
       }
-    : {
-        titulo: "🎯 Centro de Mando del área",
-        cifraOficial: Boolean(area?.venta_total_iva != null),
-        venta_total_iva: area?.venta_total_iva ?? null,
-        objetivo_total_iva: area?.objetivo_total_iva ?? null,
-        objetivo_pe_iva: area?.objetivo_pe_iva ?? null,
-        cumplimiento_pct: area?.cumplimiento_pct ?? null,
-        semaforo: area?.semaforo ?? "sin_dato",
-        deals_ganados: area?.deals_ganados ?? null,
-        ganado_sin_iva: area?.ganado_sin_iva ?? null,
-        tareas_abiertas: tareas.length,
-        venta_existentes_iva: area?.venta_existentes_iva ?? null,
-        venta_nuevos_iva: area?.venta_nuevos_iva ?? null,
-        deals_marketing: area?.deals_marketing ?? null,
-        monto_marketing_sin_iva: area?.monto_marketing_sin_iva ?? null,
-        ciclo_cierre_promedio: area?.ciclo_cierre_promedio ?? null,
-      };
+    : anualData?.meta
+      ? {
+          // Vista Anual (YTD): venta acumulada del año vs. Meta Anual --
+          // sin desglose de negocios/tareas del mes, no aplica a un año.
+          titulo: `🎯 Centro de Mando del área — Acumulado ${anualData.meta.anio} (YTD)`,
+          cifraOficial: true,
+          venta_total_iva: anualData.meta.acumuladoIva,
+          objetivo_total_iva: anualData.meta.metaAFechaIva ?? anualData.meta.objetivoIva,
+          objetivo_pe_iva: null as number | null,
+          cumplimiento_pct: anualData.meta.avancePct,
+          semaforo: (anualData.meta.avancePct >= 100 ? "verde" : anualData.meta.avancePct >= 80 ? "amarillo" : "rojo") as Semaforo,
+          deals_ganados: null as number | null,
+          ganado_sin_iva: null as number | null,
+          tareas_abiertas: tareas.length,
+          venta_existentes_iva: null as number | null,
+          venta_nuevos_iva: null as number | null,
+          deals_marketing: null as number | null,
+          monto_marketing_sin_iva: null as number | null,
+          ciclo_cierre_promedio: null as number | null,
+        }
+      : semaforoAreaTotal
+      ? {
+          // Mismo criterio que el Reporte de Semáforos/Comparativa (el mayor
+          // entre Monday y HubSpot, sumado por vendedor) -- ya no la cifra
+          // de periodo_resumen_area, que se captura aparte y no coincidía.
+          titulo: "🎯 Centro de Mando del área",
+          cifraOficial: true,
+          venta_total_iva: semaforoAreaTotal.resultado,
+          objetivo_total_iva: semaforoAreaTotal.objetivo,
+          objetivo_pe_iva: semaforoAreaTotal.puntoEquilibrio,
+          cumplimiento_pct: semaforoAreaTotal.objetivo > 0 ? (semaforoAreaTotal.resultado / semaforoAreaTotal.objetivo) * 100 : null,
+          semaforo: semaforoMetaPe(semaforoAreaTotal.resultado, semaforoAreaTotal.objetivo, semaforoAreaTotal.puntoEquilibrio),
+          deals_ganados: area?.deals_ganados ?? null,
+          ganado_sin_iva: area?.ganado_sin_iva ?? null,
+          tareas_abiertas: tareas.length,
+          venta_existentes_iva: semaforoAreaTotal.resultadoExistentes,
+          venta_nuevos_iva: semaforoAreaTotal.resultadoNuevos,
+          deals_marketing: area?.deals_marketing ?? null,
+          monto_marketing_sin_iva: area?.monto_marketing_sin_iva ?? null,
+          ciclo_cierre_promedio: area?.ciclo_cierre_promedio ?? null,
+        }
+      : {
+          titulo: "🎯 Centro de Mando del área",
+          cifraOficial: Boolean(area?.venta_total_iva != null),
+          venta_total_iva: area?.venta_total_iva ?? null,
+          objetivo_total_iva: area?.objetivo_total_iva ?? null,
+          objetivo_pe_iva: area?.objetivo_pe_iva ?? null,
+          cumplimiento_pct: area?.cumplimiento_pct ?? null,
+          semaforo: area?.semaforo ?? "sin_dato",
+          deals_ganados: area?.deals_ganados ?? null,
+          ganado_sin_iva: area?.ganado_sin_iva ?? null,
+          tareas_abiertas: tareas.length,
+          venta_existentes_iva: area?.venta_existentes_iva ?? null,
+          venta_nuevos_iva: area?.venta_nuevos_iva ?? null,
+          deals_marketing: area?.deals_marketing ?? null,
+          monto_marketing_sin_iva: area?.monto_marketing_sin_iva ?? null,
+          ciclo_cierre_promedio: area?.ciclo_cierre_promedio ?? null,
+        };
 
   return (
     <>
@@ -181,6 +233,7 @@ export async function TorreDeControl({
               periodos={lista}
               vendedores={mostrarFiltroVendedor ? personas.filter((p) => p.rol === "vendedor") : []}
               mostrarVistaTiempo
+              mostrarAlcance={mostrarFiltroVendedor && !vendedorId}
               periodoActivoId={periodoId}
             />
           </Suspense>
@@ -215,9 +268,11 @@ export async function TorreDeControl({
         descripcion={
           seleccionado
             ? "Cifras de este vendedor para el periodo — misma fuente que la tabla comparativa de abajo."
-            : resumen.cifraOficial
-              ? "Cifra oficial del semáforo comercial, no la suma de las filas individuales."
-              : "Reconstruido sumando las filas por vendedor: aún no se captura la cifra oficial del área."
+            : anualData?.meta
+              ? "Acumulado del año a la fecha (YTD) -- venta real vs. la meta acumulada de los meses ya transcurridos."
+              : resumen.cifraOficial
+                ? "Mismo criterio que el Reporte de Semáforos: el mayor entre Monday y HubSpot, sumado por vendedor."
+                : "Reconstruido sumando las filas por vendedor: aún no se captura la cifra oficial del área."
         }
       >
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

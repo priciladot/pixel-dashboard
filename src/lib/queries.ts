@@ -1087,7 +1087,7 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
 }
 
 /** Calcado de la función SQL public.semaforo_meta_pe() -- misma regla, en JS. */
-function semaforoMetaPe(venta: number | null, objetivo: number | null, pe: number | null): Semaforo {
+export function semaforoMetaPe(venta: number | null, objetivo: number | null, pe: number | null): Semaforo {
   if (venta == null || !objetivo) return "sin_dato";
   if (venta >= objetivo) return "verde";
   if (pe != null) return venta >= pe ? "amarillo" : "rojo";

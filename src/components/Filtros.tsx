@@ -16,8 +16,11 @@ import type { Perfil, Periodo } from "@/lib/types";
  * pantalla ya mostraba, correctamente, los datos reales de septiembre.
  */
 export function Filtros({
-  periodos, vendedores = [], mostrarVentana = true, mostrarVistaTiempo = false, periodoActivoId,
-}: { periodos: Periodo[]; vendedores?: Perfil[]; mostrarVentana?: boolean; mostrarVistaTiempo?: boolean; periodoActivoId?: string }) {
+  periodos, vendedores = [], mostrarVentana = true, mostrarVistaTiempo = false, mostrarAlcance = false, periodoActivoId,
+}: {
+  periodos: Periodo[]; vendedores?: Perfil[]; mostrarVentana?: boolean; mostrarVistaTiempo?: boolean;
+  mostrarAlcance?: boolean; periodoActivoId?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -60,6 +63,16 @@ export function Filtros({
           <select className={clase} value={params.get("ventana") ?? "kpi_4_semanas"} onChange={(e) => set("ventana", e.target.value)}>
             <option value="kpi_4_semanas">KPI — 4 semanas (S1–S4)</option>
             <option value="calendario">Calendario — mes 1 al 31</option>
+          </select>
+        </label>
+      )}
+
+      {mostrarAlcance && (
+        <label className="flex items-center gap-1.5 text-[12px] text-ink-soft">
+          Alcance
+          <select className={clase} value={params.get("alcance") ?? "mes"} onChange={(e) => set("alcance", e.target.value)}>
+            <option value="mes">Mensual</option>
+            <option value="anio">Anual (YTD)</option>
           </select>
         </label>
       )}
