@@ -947,11 +947,12 @@ function semaforoDe(resultado: number, verde: number, amarillo: number): "verde"
 export async function reporteSemaforoComercial(periodoId: string): Promise<{ filas: FilaSemaforoComercial[]; total: FilaSemaforoComercial }> {
   const supabase = await createClient();
 
-  const [metasRes, dealsRes, perfilesRes] = await Promise.all([
+  const [metasRes, dealsRes, perfilesRes, kpiRes] = await Promise.all([
     supabase.from("metas_semaforo").select("*").eq("periodo_id", periodoId),
     supabase.from("v_deals_operativo").select("vendedor_id, hubspot_id, como_llego, monto_atribuido_con_iva, cerrado_ganado")
       .eq("periodo_id", periodoId).not("monday_elemento_id", "is", null).eq("cerrado_ganado", true),
     supabase.from("profiles").select("id, nombre_corto"),
+    supabase.from("kpi_mensual").select("vendedor_id, venta_total_iva").eq("periodo_id", periodoId).eq("ventana", "calendario"),
   ]);
 
   const metas = (metasRes.data as Array<{
@@ -960,6 +961,9 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
   }>) ?? [];
   const dealsCrudos = (dealsRes.data as Array<{ vendedor_id: string | null; hubspot_id: string; como_llego: string | null; monto_atribuido_con_iva: number | null }>) ?? [];
   const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
+  const ventaOficialPorVendedor = new Map(
+    (kpiRes.data as Array<{ vendedor_id: string; venta_total_iva: number | null }> ?? []).map((k) => [k.vendedor_id, k.venta_total_iva ?? 0]),
+  );
 
   // Un mismo (vendedor, hubspot_id) NUNCA debería tener más de una fila en
   // Monday -- una división real es entre DOS VENDEDORES DISTINTOS, cada
@@ -987,14 +991,29 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
   }
 
   const filas: FilaSemaforoComercial[] = metas.map((m) => {
-    // Resultado = el monto real que Monday tiene atribuido a este vendedor
-    // (deduplicado por hubspot_id, con IVA) -- Pris confirmó que este debe
-    // ser el criterio final, aunque a veces no coincida con el total
-    // oficial de HubSpot (kpi_mensual.venta_total_iva, usado antes como
-    // ancla): Monday puede atribuir un monto combinado distinto por deal,
-    // y esa atribución manual es la que manda para este reporte.
-    const r = resultadosPorVendedor.get(m.vendedor_id) ?? { existentes: 0, nuevos: 0 };
-    const resultado = r.existentes + r.nuevos;
+    // Resultado = el MAYOR entre lo que Monday tiene atribuido (deduplicado,
+    // con IVA) y la cifra oficial de HubSpot -- Pris lo confirmó comparando
+    // vendedor por vendedor: a veces Monday atribuye más (un combo/comisión
+    // manual que HubSpot no ve, ej. Pris/Roxana) y a veces HubSpot tiene más
+    // (negocios ganados que nunca se registraron en Monday, ej. Gaby). El
+    // vendedor nunca debe salir perjudicado por el que se quede corto.
+    const rMonday = resultadosPorVendedor.get(m.vendedor_id) ?? { existentes: 0, nuevos: 0 };
+    const sumaMonday = rMonday.existentes + rMonday.nuevos;
+    const oficial = ventaOficialPorVendedor.get(m.vendedor_id) ?? 0;
+    const resultado = Math.max(sumaMonday, oficial);
+
+    let r: { existentes: number; nuevos: number };
+    if (resultado === sumaMonday) {
+      // Monday manda -- ya suma exacto al resultado, se usa tal cual.
+      r = rMonday;
+    } else {
+      // La cifra oficial es mayor: se reparte con la MISMA proporción
+      // Existentes/Nuevos que ya muestra Monday, escalada para que la suma
+      // dé exacto el oficial (sin Monday que repartir, todo va a Nuevos).
+      const pctExistentes = sumaMonday > 0 ? rMonday.existentes / sumaMonday : 0;
+      const existentes = Math.round(oficial * pctExistentes * 100) / 100;
+      r = { existentes, nuevos: Math.round((oficial - existentes) * 100) / 100 };
+    }
     const objetivo = m.existentes_verde + m.nuevos_verde;
     return {
       vendedorId: m.vendedor_id,
