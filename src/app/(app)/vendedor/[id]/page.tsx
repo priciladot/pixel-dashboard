@@ -7,6 +7,7 @@ import { Filtros } from "@/components/Filtros";
 import { Acciones } from "@/components/Acciones";
 import { Historico } from "@/components/Historico";
 import { TorreDeControl } from "@/components/TorreDeControl";
+import { AnuncioTemporal } from "@/components/AnuncioTemporal";
 import { formatearRangoFechas } from "@/lib/format";
 import type { Ventana } from "@/lib/types";
 
@@ -73,6 +74,13 @@ export default async function VistaVendedor({
           <Filtros periodos={lista} mostrarVistaTiempo periodoActivoId={periodoId} />
         </Suspense>
       </div>
+
+      {/* Anuncios temporales -- solo para la audiencia/rango de fechas de cada
+          uno (ver src/lib/anuncios.ts). Usa el rol/correo de la SESIÓN actual,
+          no el del perfil que se está viendo: si dirección entra a supervisar
+          el perfil de un vendedor, el banner es para vendedores y no debe
+          aparecerle a dirección. */}
+      <AnuncioTemporal rol={sesion.rol} correo={sesion.email} />
 
       {/* Torre de Control -- mismos 4 Actos que /maestro, con el vendedor
           fijo en persona.id: no hay dropdown para cambiarlo (mostrarFiltroVendedor
