@@ -15,13 +15,13 @@ const claveOculto = (id: string) => `anuncio-oculto:${id}`;
  * Por eso el primer render (servidor y cliente, antes de montar) siempre
  * devuelve null.
  */
-export function AnuncioTemporal({ rol, correo }: { rol: AppRole; correo: string }) {
+export function AnuncioTemporal({ rol, correo, verTodos = false }: { rol: AppRole; correo: string; verTodos?: boolean }) {
   const [anuncios, setAnuncios] = useState<Anuncio[]>([]);
   const [ocultos, setOcultos] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    setAnuncios(anunciosVigentes(rol, correo));
-  }, [rol, correo]);
+    setAnuncios(anunciosVigentes(rol, correo, new Date(), verTodos));
+  }, [rol, correo, verTodos]);
 
   useEffect(() => {
     if (anuncios.length === 0) return;

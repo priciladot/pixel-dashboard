@@ -38,6 +38,8 @@ export default async function Maestro({
         vendedorIdForzado={sp.vendedor}
         mostrarFiltroVendedor
         mostrarEncabezado
+        sesionRol={perfil.rol}
+        sesionCorreo={perfil.email}
       />
     </>
   );

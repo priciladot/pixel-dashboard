@@ -84,6 +84,8 @@ export default async function VistaVendedor({
         vendedorIdForzado={persona.id}
         mostrarFiltroVendedor={false}
         mostrarEncabezado={false}
+        sesionRol={sesion.rol}
+        sesionCorreo={sesion.email}
       />
 
       {/* Evaluación cualitativa --------------------------------------------- */}

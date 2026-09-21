@@ -27,7 +27,7 @@ import { BotonRevisarLompi } from "@/components/BotonRevisarLompi";
 import { AnuncioTemporal } from "@/components/AnuncioTemporal";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
 import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
-import type { Ventana, Semaforo } from "@/lib/types";
+import type { Ventana, Semaforo, AppRole } from "@/lib/types";
 
 /**
  * Torre de Control: los 4 Bloques completos, sin recortar herramientas de
@@ -49,6 +49,7 @@ import type { Ventana, Semaforo } from "@/lib/types";
  */
 export async function TorreDeControl({
   periodoIdParam, ventanaParam, vistaParam, alcanceParam, vendedorIdForzado, mostrarFiltroVendedor, mostrarEncabezado,
+  sesionRol, sesionCorreo,
 }: {
   periodoIdParam?: string;
   ventanaParam?: string;
@@ -57,9 +58,16 @@ export async function TorreDeControl({
   vendedorIdForzado?: string;
   mostrarFiltroVendedor: boolean;
   mostrarEncabezado: boolean;
+  /** Rol/correo de quien tiene la sesión abierta (no del perfil que se está viendo) -- para el banner de anuncios. */
+  sesionRol: AppRole;
+  sesionCorreo: string;
 }) {
   const vendedorId = vendedorIdForzado;
   const alcanceAnual = !vendedorId && alcanceParam === "anio";
+  // Dirección (admin/supervisor) siempre ve todos los anuncios, sin
+  // importar la audiencia -- confirmado: "yo como Dirección/Dueña siempre
+  // debo tener visibilidad total, incluyendo la vista previa desde /maestro".
+  const esDireccionSesion = sesionRol === "admin" || sesionRol === "supervisor";
 
   const lista = await periodos();
   if (lista.length === 0) {
@@ -142,11 +150,6 @@ export async function TorreDeControl({
   // importar el filtro. Sin filtro, o si el id no resolvió a nadie, se cae al
   // resumen del área de siempre.
   const seleccionado = vendedorId ? filas[0] : undefined;
-  // Perfil completo (rol/email) del vendedor filtrado -- para el banner de
-  // anuncios temporales. Se resuelve aquí (no solo en /vendedor/[id]) porque
-  // dirección también filtra a un vendedor específico desde el dropdown de
-  // /maestro, sin pasar por esa página.
-  const personaSeleccionada = vendedorId ? personas.find((p) => p.id === vendedorId) : undefined;
   const resumen = seleccionado
     ? {
         titulo: `🎯 Mi Centro de Mando — ${seleccionado.nombre_corto}`,
@@ -249,7 +252,7 @@ export async function TorreDeControl({
         </div>
       )}
 
-      {personaSeleccionada && <AnuncioTemporal rol={personaSeleccionada.rol} correo={personaSeleccionada.email} />}
+      <AnuncioTemporal rol={sesionRol} correo={sesionCorreo} verTodos={esDireccionSesion} />
 
       {seleccionado && notasGestion.length > 0 && (
         <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
