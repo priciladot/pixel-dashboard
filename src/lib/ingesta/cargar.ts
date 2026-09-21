@@ -890,6 +890,34 @@ export async function ingestarAnaliticaHubspot(
         }
       }
 
+      // 2b. Contactos citados directo en actividades/tareas (contact_id_ref)
+      // que no vinieron ya por escribirContactos() (esa solo trae los
+      // asociados a un Deal) -- muchas tareas (ej. "remark") no tienen Deal
+      // asociado, solo un contacto directo, y sin su correo en
+      // hubspot_contacts el vendedor no tiene forma de saber a quién se
+      // refiere la tarea en Disciplina Comercial.
+      const idsContactoEngagements = [...new Set(
+        Object.values(datos.engagements.porTipo).flatMap((lista) => (lista ?? []).map((e) => e.contact_id_ref)),
+      )].filter((id): id is string => id != null);
+      if (idsContactoEngagements.length > 0) {
+        escrituras.push((async () => {
+          const { contactos } = await buscarContactosPorId(idsContactoEngagements);
+          if (contactos.length === 0) return;
+          const filas = contactos.map((c) => ({
+            hubspot_id: c.hubspot_id,
+            email: c.email,
+            ingesta_id: ingestaId,
+            raw: c.raw,
+            actualizado_en: new Date().toISOString(),
+          }));
+          for (let i = 0; i < filas.length; i += 500) {
+            const { error } = await db.from("hubspot_contacts")
+              .upsert(filas.slice(i, i + 500), { onConflict: "hubspot_id" });
+            if (error) throw new Error(`Error al escribir contactos de actividades: ${error.message}`);
+          }
+        })());
+      }
+
       // 3. Leads — mismo patrón de resolución.
       if (datos.leads.leads.length > 0) {
         const filas = datos.leads.leads.map((l) => ({
