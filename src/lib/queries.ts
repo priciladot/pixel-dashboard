@@ -949,7 +949,7 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
 
   const [metasRes, dealsRes, perfilesRes, kpiRes] = await Promise.all([
     supabase.from("metas_semaforo").select("*").eq("periodo_id", periodoId),
-    supabase.from("v_deals_operativo").select("vendedor_id, como_llego, monto_atribuido_con_iva, cerrado_ganado")
+    supabase.from("v_deals_operativo").select("vendedor_id, hubspot_id, como_llego, monto_atribuido_con_iva, cerrado_ganado")
       .eq("periodo_id", periodoId).not("monday_elemento_id", "is", null).eq("cerrado_ganado", true),
     supabase.from("profiles").select("id, nombre_corto"),
     supabase.from("kpi_mensual").select("vendedor_id, venta_total_iva").eq("periodo_id", periodoId).eq("ventana", "calendario"),
@@ -959,11 +959,26 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
     vendedor_id: string; existentes_verde: number; existentes_amarillo: number;
     nuevos_verde: number; nuevos_amarillo: number; punto_equilibrio: number;
   }>) ?? [];
-  const deals = (dealsRes.data as Array<{ vendedor_id: string | null; como_llego: string | null; monto_atribuido_con_iva: number | null }>) ?? [];
+  const dealsCrudos = (dealsRes.data as Array<{ vendedor_id: string | null; hubspot_id: string; como_llego: string | null; monto_atribuido_con_iva: number | null }>) ?? [];
   const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
   const ventaOficialPorVendedor = new Map(
     (kpiRes.data as Array<{ vendedor_id: string; venta_total_iva: number | null }> ?? []).map((k) => [k.vendedor_id, k.venta_total_iva ?? 0]),
   );
+
+  // Un mismo (vendedor, hubspot_id) NUNCA debería tener más de una fila en
+  // Monday -- una división real es entre DOS VENDEDORES DISTINTOS, cada
+  // uno con su propia fila. Cuando el mismo vendedor + mismo hubspot_id
+  // aparece varias veces (visto en Mar: un negocio capturado 6 veces con
+  // el mismo monto) es un item archivado/duplicado que nunca se limpió --
+  // se queda con una sola fila por combinación antes de sacar la
+  // proporción Existentes/Nuevos, para no inflarla con duplicados.
+  const vistos = new Set<string>();
+  const deals = dealsCrudos.filter((d) => {
+    const clave = `${d.vendedor_id}-${d.hubspot_id}`;
+    if (vistos.has(clave)) return false;
+    vistos.add(clave);
+    return true;
+  });
 
   const resultadosPorVendedor = new Map<string, { existentes: number; nuevos: number }>();
   for (const d of deals) {
