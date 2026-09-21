@@ -1461,18 +1461,34 @@ async function mondaySinCanal(
   supabase: Awaited<ReturnType<typeof createClient>>, periodoId: string, vendedorId: string | undefined,
   mapaVendedores: Map<string, string>,
 ): Promise<AlertaAuditoria[]> {
+  // Se traen TODAS las filas de Monday del periodo (no solo las que ya
+  // vienen sin canal): un mismo hubspot_id puede tener más de un item en
+  // Monday -- uno real y capturado, y una copia archivada/vacía que nunca
+  // se purgó (visto antes con Mar, mismo caso aquí con Gaby). Si CUALQUIERA
+  // de las filas de ese negocio sí trae el canal, no debe salir en esta
+  // alerta aunque exista una copia vieja en blanco.
   let q = supabase.from("v_deals_operativo")
     .select("hubspot_id, vendedor_id, empresa, correo_cliente, productos, monto_atribuido_con_iva, monday_elemento_id, como_llego")
     .eq("periodo_id", periodoId)
-    .not("monday_elemento_id", "is", null)
-    .is("como_llego", null);
+    .not("monday_elemento_id", "is", null);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
-  const { data } = await q.limit(1000);
+  const { data } = await q.limit(2000);
 
-  return ((data as Array<{
+  const filas = (data as Array<{
     hubspot_id: string; vendedor_id: string | null; empresa: string | null; correo_cliente: string | null;
-    productos: string | null; monto_atribuido_con_iva: number | null;
-  }>) ?? []).map((r) => {
+    productos: string | null; monto_atribuido_con_iva: number | null; como_llego: string | null;
+  }>) ?? [];
+
+  const tieneCanalPorHubspotId = new Set(filas.filter((f) => f.como_llego).map((f) => f.hubspot_id));
+  const vistos = new Set<string>();
+  const sinCanal = filas.filter((f) => {
+    if (f.como_llego || tieneCanalPorHubspotId.has(f.hubspot_id)) return false;
+    if (vistos.has(f.hubspot_id)) return false;
+    vistos.add(f.hubspot_id);
+    return true;
+  });
+
+  return sinCanal.map((r) => {
     const vendedor = r.vendedor_id ? mapaVendedores.get(r.vendedor_id) ?? "Sin asignar" : "Sin asignar";
     const empresa = r.empresa ?? `#${r.hubspot_id}`;
     return {
