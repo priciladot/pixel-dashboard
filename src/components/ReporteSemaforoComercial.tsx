@@ -77,9 +77,10 @@ export async function ReporteSemaforoComercial({ periodoId, etiquetaPeriodo }: {
         </table>
       </div>
       <p className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
-"Resultado" (acumulado del mes) es la cifra oficial de ventas de HubSpot, con IVA -- coincide exacto con el semáforo comercial oficial. "Resultados"
-        de Existentes y Nuevos reparten ese mismo total según la proporción real de "¿Cómo llegó?" en Monday (Contacto existente/Remarketing =
-        Existentes; todo lo demás = Nuevos) -- así el desglose nunca se desvía del total oficial. Rojo = por debajo del umbral Amarillo.
+"Resultados" y "Resultado" (acumulado del mes) salen del monto real que Monday tiene atribuido a cada vendedor (con IVA), deduplicado por negocio --
+        un mismo negocio no cuenta dos veces aunque tenga varias filas archivadas en Monday. Puede diferir del total oficial de HubSpot cuando Monday
+        atribuye manualmente un monto combinado a un cierre. Existentes = "¿Cómo llegó?" Contacto existente/Remarketing; todo lo demás cuenta como
+        Nuevos. Rojo = por debajo del umbral Amarillo.
       </p>
     </Card>
   );
