@@ -2966,6 +2966,15 @@ export async function notasGestionMarketing(vendedorId?: string): Promise<NotaGe
   return (data as NotaGestion[]) ?? [];
 }
 
+/** Igual que notasGestionMarketing(), pero para el equipo comercial (notas_gestion_ventas) -- se muestra en /vendedor/[id]. */
+export async function notasGestionVenta(vendedorId?: string): Promise<NotaGestion[]> {
+  const supabase = await createClient();
+  let q = supabase.from("notas_gestion_ventas").select("*");
+  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+  const { data } = await q.order("creado_en", { ascending: false });
+  return (data as NotaGestion[]) ?? [];
+}
+
 /* ------------------------------------------------------------------ */
 /* Panel de Gerente de Marketing (Dana) -- 5 KPIs del "Perfil vigente   */
 /* de Gerente de Marketing": Leads Calificados, CPL/Conversión, ROAS,  */

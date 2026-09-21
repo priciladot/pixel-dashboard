@@ -6,8 +6,9 @@ import {
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
   proyeccionPipeline, pendientesLompiAbiertos, rachaLompiWhatsapp, progresoAceleradorSemanal, estadoLompi,
-  aplicarResultadoRealAComparativa, reporteSemaforoComercial, semaforoMetaPe, comparativoVentasAnual,
+  aplicarResultadoRealAComparativa, reporteSemaforoComercial, semaforoMetaPe, comparativoVentasAnual, notasGestionVenta,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type PendienteLompi, type AceleradorSemanal, type EstadoLompi,
+  type NotaGestion,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
   type ActividadPorTipo, type TareasPorEstado, type TamanoNegocio, type HistorialCambios,
@@ -76,7 +77,7 @@ export async function TorreDeControl({
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
     actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
     coachAcciones, disciplina, proyeccionPipelineData, estancados10,
-    pendientesLompi, rachaLompiWa, acelerador, lompiEstado,
+    pendientesLompi, rachaLompiWa, acelerador, lompiEstado, notasGestion,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
@@ -108,6 +109,7 @@ export async function TorreDeControl({
     vendedorId ? rachaLompiWhatsapp(vendedorId) : Promise.resolve(0),
     vendedorId ? progresoAceleradorSemanal(vendedorId) : Promise.resolve(null as AceleradorSemanal | null),
     estadoLompi(),
+    vendedorId ? notasGestionVenta(vendedorId) : Promise.resolve([] as NotaGestion[]),
   ]);
 
   const filas = vendedorId ? equipo.filter((f) => f.vendedor_id === vendedorId) : equipo;
@@ -445,6 +447,12 @@ export async function TorreDeControl({
         </Seccion>
       )}
 
+      {seleccionado && notasGestion.length > 0 && (
+        <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
+          <NotasGestionLista notas={notasGestion} />
+        </Seccion>
+      )}
+
       {seleccionado && proyeccionPipelineData && (
         <Seccion
           titulo="🔮 Proyección de Cierres y Pipeline Ponderado"
@@ -760,6 +768,36 @@ function EstadoLompiBadge({ estado }: { estado: EstadoLompi }) {
       </span>
       <BotonRevisarLompi />
     </div>
+  );
+}
+
+const FORMATO_FECHA_NOTA = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "long", year: "numeric" });
+
+/** Notas de gestión (notas_gestion_ventas) -- llamadas de atención / reconocimientos, sin fecha límite ni estatus. */
+function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
+  return (
+    <ul className="space-y-2">
+      {notas.map((n) => {
+        const ESTILO_NOTA = {
+          llamada_atencion: { color: "#d03b3b", bg: "#fdecec", borde: "#f3c2c2", etiqueta: "⚠️ Llamada de atención" },
+          reconocimiento: { color: "#0ca30c", bg: "#e9f7e9", borde: "#bfe6bf", etiqueta: "✅ Reconocimiento" },
+          recordatorio: { color: "#2a78d6", bg: "#2a78d614", borde: "#2a78d640", etiqueta: "💡 Recordatorio" },
+        } as const;
+        const { color, bg, borde, etiqueta } = ESTILO_NOTA[n.tipo];
+        return (
+          <li key={n.id} className="rounded-card border px-4 py-3" style={{ backgroundColor: bg, borderColor: borde }}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[13px] font-medium text-ink">
+                <span style={{ color }}>{etiqueta}</span>
+                {" — "}{n.titulo}
+              </p>
+              <span className="text-[11px] text-ink-muted">{FORMATO_FECHA_NOTA.format(new Date(n.creado_en))}</span>
+            </div>
+            {n.detalle && <p className="mt-1 text-[12px] text-ink-soft">{n.detalle}</p>}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
