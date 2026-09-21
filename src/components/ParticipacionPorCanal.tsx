@@ -3,7 +3,7 @@ import { dinero } from "@/lib/format";
 import type { ResumenOperativoMonday } from "@/lib/queries";
 
 const EXISTENTES = ["Contacto existente", "Remarketing"];
-const NUEVOS = ["Recomendación", "Equipo Comercial", "WhatsApp", "Instagram", "Facebook", "Mail", "Ads"];
+const NUEVOS = ["Recomendación", "Equipo Comercial", "WhatsApp", "Instagram", "Facebook", "Mail", "Ads", "Patagon", "Prospección"];
 
 /**
  * Participación por Canales de Origen (Existentes vs. Nuevos) -- lista fija

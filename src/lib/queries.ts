@@ -789,6 +789,14 @@ export interface ResumenOperativoMonday {
 
 const CANALES_CARTERA_EXISTENTE = new Set(["contacto existente", "remarketing"]);
 
+// Errores de captura conocidos en el campo "Cómo llegó" de Monday -- se
+// normalizan al nombre real antes de agruparlos por canal, para que no
+// aparezcan como un canal aparte ni se pierdan del desglose.
+const CANAL_ALIAS: Record<string, string> = { adds: "Ads" };
+function canonicalizarCanal(canal: string): string {
+  return CANAL_ALIAS[canal.trim().toLowerCase()] ?? canal;
+}
+
 /**
  * Tipo de negocio y canal de origen, **solo de los negocios que sí están
  * registrados en Monday** — esta tarjeta responde "¿cómo se clasifican los
@@ -871,10 +879,11 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
     porTipoMapa.set(tipo, t);
 
     if (r.como_llego) {
-      const c = porCanalMapa.get(r.como_llego) ?? { deals: 0, monto: 0 };
+      const canal = canonicalizarCanal(r.como_llego);
+      const c = porCanalMapa.get(canal) ?? { deals: 0, monto: 0 };
       c.deals += 1;
       c.monto += montoAjustado;
-      porCanalMapa.set(r.como_llego, c);
+      porCanalMapa.set(canal, c);
     }
   }
 
@@ -962,10 +971,11 @@ export async function resumenOperativoMondayHistorico(vendedorId?: string): Prom
     porTipoMapa.set(tipo, t);
 
     if (r.como_llego) {
-      const c = porCanalMapa.get(r.como_llego) ?? { deals: 0, monto: 0 };
+      const canal = canonicalizarCanal(r.como_llego);
+      const c = porCanalMapa.get(canal) ?? { deals: 0, monto: 0 };
       c.deals += 1;
       c.monto += montoAjustado;
-      porCanalMapa.set(r.como_llego, c);
+      porCanalMapa.set(canal, c);
     }
   }
 
