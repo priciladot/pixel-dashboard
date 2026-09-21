@@ -1036,6 +1036,83 @@ export async function reporteSemaforoComercial(periodoId: string): Promise<{ fil
   return { filas, total };
 }
 
+export interface FilaComparativoAnual {
+  mes: number;
+  etiquetaMes: string;
+  venta2025SinIva: number | null;
+  venta2025ConIva: number | null;
+  venta2026SinIva: number | null;
+  venta2026ConIva: number | null;
+  variacionPct: number | null;
+}
+
+export interface MetaAnual {
+  anio: number;
+  objetivoIva: number;
+  acumuladoIva: number;
+  avancePct: number;
+  faltanteIva: number;
+  corteEtiqueta: string;
+  notas: string | null;
+}
+
+export interface ComparativoVentas {
+  filas: FilaComparativoAnual[];
+  meta: MetaAnual | null;
+}
+
+const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+/**
+ * Ventas Totales Comparativo (2026 vs. 2025) + Meta Anual -- Dashboard
+ * Maestro. 2025 no está sincronizado en este dashboard (arrancó en
+ * 2026); ambos años viven como snapshot manual en
+ * `ventas_historico_mensual` (2025 = cifra fija que dio Pris, 2026 =
+ * HubSpot). Con IVA = ×1.16 sobre el sin IVA guardado.
+ */
+export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
+  const supabase = await createClient();
+
+  const [historicoRes, metaRes] = await Promise.all([
+    supabase.from("ventas_historico_mensual").select("anio, mes, venta_sin_iva"),
+    supabase.from("metas_anuales").select("*").order("anio", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+
+  const historico = (historicoRes.data as Array<{ anio: number; mes: number; venta_sin_iva: number }>) ?? [];
+  const porAnioMes = new Map(historico.map((h) => [`${h.anio}-${h.mes}`, h.venta_sin_iva]));
+
+  const filas: FilaComparativoAnual[] = Array.from({ length: 12 }, (_, i) => {
+    const mes = i + 1;
+    const v2025 = porAnioMes.get(`2025-${mes}`) ?? null;
+    const v2026 = porAnioMes.get(`2026-${mes}`) ?? null;
+    return {
+      mes,
+      etiquetaMes: MESES_CORTOS[i],
+      venta2025SinIva: v2025,
+      venta2025ConIva: v2025 != null ? v2025 * 1.16 : null,
+      venta2026SinIva: v2026,
+      venta2026ConIva: v2026 != null ? v2026 * 1.16 : null,
+      variacionPct: v2025 != null && v2026 != null && v2025 > 0 ? ((v2026 - v2025) / v2025) * 100 : null,
+    };
+  });
+
+  const m = metaRes.data as {
+    anio: number; objetivo_iva: number; acumulado_iva: number; corte_periodo_id: string; notas: string | null;
+  } | null;
+
+  const meta: MetaAnual | null = m ? {
+    anio: m.anio,
+    objetivoIva: m.objetivo_iva,
+    acumuladoIva: m.acumulado_iva,
+    avancePct: m.objetivo_iva > 0 ? (m.acumulado_iva / m.objetivo_iva) * 100 : 0,
+    faltanteIva: m.objetivo_iva - m.acumulado_iva,
+    corteEtiqueta: m.corte_periodo_id,
+    notas: m.notas,
+  } : null;
+
+  return { filas, meta };
+}
+
 /* ------------------------------------------------------------------ */
 /* Alertas de higiene y auditoría comercial (HubSpot vs. Monday)        */
 /* ------------------------------------------------------------------ */
