@@ -1145,11 +1145,14 @@ export interface FilaComparativoAnual {
   venta2026SinIva: number | null;
   venta2026ConIva: number | null;
   variacionPct: number | null;
+  metaMesConIva: number | null;
+  cumplimientoMesPct: number | null;
 }
 
 export interface MetaAnual {
   anio: number;
   objetivoIva: number;
+  metaAFechaIva: number | null;
   acumuladoIva: number;
   avancePct: number;
   faltanteIva: number;
@@ -1184,27 +1187,33 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
   const supabase = await createClient();
 
   const [historicoRes, metaRes, porVendedorRes, perfilesRes] = await Promise.all([
-    supabase.from("ventas_historico_mensual").select("anio, mes, venta_sin_iva"),
+    supabase.from("ventas_historico_mensual").select("anio, mes, venta_sin_iva, meta_con_iva"),
     supabase.from("metas_anuales").select("*").order("anio", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("ventas_vendedor_anual").select("vendedor_id, anio, venta_sin_iva"),
     supabase.from("profiles").select("id, nombre_corto"),
   ]);
 
-  const historico = (historicoRes.data as Array<{ anio: number; mes: number; venta_sin_iva: number }>) ?? [];
+  const historico = (historicoRes.data as Array<{ anio: number; mes: number; venta_sin_iva: number; meta_con_iva: number | null }>) ?? [];
   const porAnioMes = new Map(historico.map((h) => [`${h.anio}-${h.mes}`, h.venta_sin_iva]));
+
+  const metaPorAnioMes = new Map(historico.filter((h) => h.meta_con_iva != null).map((h) => [`${h.anio}-${h.mes}`, h.meta_con_iva as number]));
 
   const filas: FilaComparativoAnual[] = Array.from({ length: 12 }, (_, i) => {
     const mes = i + 1;
     const v2025 = porAnioMes.get(`2025-${mes}`) ?? null;
     const v2026 = porAnioMes.get(`2026-${mes}`) ?? null;
+    const metaMes = metaPorAnioMes.get(`2026-${mes}`) ?? null;
+    const venta2026ConIva = v2026 ? v2026 * 1.16 : null;
     return {
       mes,
       etiquetaMes: MESES_CORTOS[i],
       venta2025SinIva: v2025,
       venta2025ConIva: v2025 != null ? v2025 * 1.16 : null,
       venta2026SinIva: v2026,
-      venta2026ConIva: v2026 != null ? v2026 * 1.16 : null,
+      venta2026ConIva,
       variacionPct: v2025 != null && v2026 != null && v2025 > 0 ? ((v2026 - v2025) / v2025) * 100 : null,
+      metaMesConIva: metaMes,
+      cumplimientoMesPct: venta2026ConIva && metaMes ? (venta2026ConIva / metaMes) * 100 : null,
     };
   });
 
@@ -1220,13 +1229,30 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
   const mesesDelAnio = m ? historico.filter((h) => h.anio === m.anio) : [];
   const acumuladoSinIva = mesesDelAnio.reduce((acc, h) => acc + h.venta_sin_iva, 0);
   const acumuladoIva = Math.round(acumuladoSinIva * 1.16 * 100) / 100;
-  const ultimoMesConDato = mesesDelAnio.reduce((max, h) => Math.max(max, h.mes), 0);
+  // > 0, no solo "existe la fila": meses futuros pueden tener una fila con
+  // venta_sin_iva=0 (para poder guardarles su meta ya de una vez, antes de
+  // que cierren) -- eso no cuenta como "mes con datos reales".
+  const ultimoMesConDato = mesesDelAnio.reduce((max, h) => (h.venta_sin_iva > 0 ? Math.max(max, h.mes) : max), 0);
+
+  // "Llevamos" compara contra la META ACUMULADA A LA FECHA (suma de las
+  // metas mensuales de los meses ya transcurridos, que Pris ajusta mes a
+  // mes -- no son parejas), no contra la meta anual completa: no tendría
+  // sentido medir septiembre contra los 12 meses del año antes de que
+  // termine. Si algún mes no tiene meta capturada todavía, esa meta
+  // acumulada queda null y se usa la meta anual completa como respaldo.
+  const metasDelAnioTranscurrido = mesesDelAnio.filter((h) => h.mes <= ultimoMesConDato);
+  const faltaAlgunaMeta = metasDelAnioTranscurrido.some((h) => h.meta_con_iva == null);
+  const metaAFechaIva = !faltaAlgunaMeta
+    ? metasDelAnioTranscurrido.reduce((acc, h) => acc + (h.meta_con_iva ?? 0), 0)
+    : null;
+  const metaParaAvance = metaAFechaIva ?? m?.objetivo_iva ?? 0;
 
   const meta: MetaAnual | null = m ? {
     anio: m.anio,
     objetivoIva: m.objetivo_iva,
+    metaAFechaIva,
     acumuladoIva,
-    avancePct: m.objetivo_iva > 0 ? (acumuladoIva / m.objetivo_iva) * 100 : 0,
+    avancePct: metaParaAvance > 0 ? (acumuladoIva / metaParaAvance) * 100 : 0,
     faltanteIva: m.objetivo_iva - acumuladoIva,
     corteEtiqueta: ultimoMesConDato > 0 ? `${m.anio}-${String(ultimoMesConDato).padStart(2, "0")}` : m.corte_periodo_id,
     notas: m.notas,

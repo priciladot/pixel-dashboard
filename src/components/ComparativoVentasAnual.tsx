@@ -13,6 +13,10 @@ export async function ComparativoVentasAnual() {
 
   const total2025SinIva = filas.reduce((acc, f) => acc + (f.venta2025SinIva ?? 0), 0);
   const total2026SinIva = filas.reduce((acc, f) => acc + (f.venta2026SinIva ?? 0), 0);
+  // Solo suma la meta de los MISMOS meses que ya tienen venta real -- para
+  // que el % de cumplimiento del total no compare 9 meses reales contra
+  // los 12 meses de meta del año completo.
+  const totalMetaConIva = filas.reduce((acc, f) => acc + (f.venta2026SinIva ? f.metaMesConIva ?? 0 : 0), 0);
   const hayAmbosAnios = filas.some((f) => f.venta2025SinIva != null) && filas.some((f) => f.venta2026SinIva != null);
 
   return (
@@ -24,9 +28,13 @@ export async function ComparativoVentasAnual() {
             etiqueta="Llevamos"
             valor={`${meta.avancePct.toFixed(1)}%`}
             estado={meta.avancePct >= 100 ? "cumple" : meta.avancePct >= 80 ? "arriba" : "debajo"}
-            lectura={meta.avancePct >= 100 ? "Meta cumplida" : meta.avancePct >= 80 ? "Cerca de la meta" : "Por debajo del ritmo"}
+            lectura={
+              meta.metaAFechaIva != null
+                ? `vs. meta a la fecha ${dinero(meta.metaAFechaIva)}`
+                : "vs. meta anual (falta capturar meta mensual de algún mes)"
+            }
           />
-          <KpiCard etiqueta="Faltante para meta" valor={dinero(Math.max(0, meta.faltanteIva))} />
+          <KpiCard etiqueta="Faltante para meta anual" valor={dinero(Math.max(0, meta.faltanteIva))} />
           <KpiCard etiqueta={`Venta acumulada (con IVA, corte ${meta.corteEtiqueta})`} valor={dinero(meta.acumuladoIva)} />
         </div>
       )}
@@ -45,6 +53,8 @@ export async function ComparativoVentasAnual() {
                 <th className="border-l border-line px-3 py-2 font-medium">2026 sin IVA</th>
                 <th className="px-3 py-2 font-medium">2026 con IVA</th>
                 <th className="border-l border-line px-3 py-2 font-medium">Variación YoY</th>
+                <th className="border-l border-line px-3 py-2 font-medium">Meta 2026</th>
+                <th className="px-3 py-2 font-medium">Cumplimiento</th>
               </tr>
             </thead>
             <tbody>
@@ -53,10 +63,14 @@ export async function ComparativoVentasAnual() {
                   <td className="px-3 py-2 font-medium text-ink">{f.etiquetaMes}</td>
                   <td className="px-3 py-2 tabular text-ink-soft">{f.venta2025SinIva != null ? dinero(f.venta2025SinIva) : "—"}</td>
                   <td className="px-3 py-2 tabular text-ink-soft">{f.venta2025ConIva != null ? dinero(f.venta2025ConIva) : "—"}</td>
-                  <td className="px-3 py-2 tabular text-ink-soft">{f.venta2026SinIva != null ? dinero(f.venta2026SinIva) : "—"}</td>
-                  <td className="px-3 py-2 tabular text-ink-soft">{f.venta2026ConIva != null ? dinero(f.venta2026ConIva) : "—"}</td>
+                  <td className="px-3 py-2 tabular text-ink-soft">{f.venta2026SinIva ? dinero(f.venta2026SinIva) : "—"}</td>
+                  <td className="px-3 py-2 tabular text-ink-soft">{f.venta2026ConIva ? dinero(f.venta2026ConIva) : "—"}</td>
                   <td className="px-3 py-2 tabular font-medium" style={{ color: f.variacionPct == null ? undefined : f.variacionPct >= 0 ? "#0ca30c" : "#d03b3b" }}>
                     {f.variacionPct == null ? "—" : `${f.variacionPct > 0 ? "+" : ""}${f.variacionPct.toFixed(1)}%`}
+                  </td>
+                  <td className="px-3 py-2 tabular text-ink-soft">{f.metaMesConIva != null ? dinero(f.metaMesConIva) : "—"}</td>
+                  <td className="px-3 py-2 tabular font-medium" style={{ color: f.cumplimientoMesPct == null ? undefined : f.cumplimientoMesPct >= 100 ? "#0ca30c" : "#d03b3b" }}>
+                    {f.cumplimientoMesPct == null ? "—" : `${f.cumplimientoMesPct.toFixed(1)}%`}
                   </td>
                 </tr>
               ))}
@@ -70,6 +84,8 @@ export async function ComparativoVentasAnual() {
                   <td className="px-3 py-2 tabular" style={{ color: total2026SinIva >= total2025SinIva ? "#0ca30c" : "#d03b3b" }}>
                     {total2025SinIva > 0 ? `${(((total2026SinIva - total2025SinIva) / total2025SinIva) * 100).toFixed(1)}%` : "—"}
                   </td>
+                  <td className="px-3 py-2 tabular text-ink">{dinero(totalMetaConIva)}</td>
+                  <td className="px-3 py-2 tabular text-ink">{totalMetaConIva > 0 ? `${((total2026SinIva * 1.16 / totalMetaConIva) * 100).toFixed(1)}%` : "—"}</td>
                 </tr>
               )}
             </tbody>
