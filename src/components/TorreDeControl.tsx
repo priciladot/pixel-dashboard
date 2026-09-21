@@ -243,6 +243,12 @@ export async function TorreDeControl({
         </div>
       )}
 
+      {seleccionado && notasGestion.length > 0 && (
+        <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
+          <NotasGestionLista notas={notasGestion} />
+        </Seccion>
+      )}
+
       <ActoHeader numero={1} color="#2a78d6" titulo="Diagnóstico y Controles" />
 
       {seleccionado && acelerador && (
@@ -444,12 +450,6 @@ export async function TorreDeControl({
               {seleccionado.actividades_totales != null && <>{num(seleccionado.actividades_totales)} actividades registradas</>}
             </p>
           )}
-        </Seccion>
-      )}
-
-      {seleccionado && notasGestion.length > 0 && (
-        <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
-          <NotasGestionLista notas={notasGestion} />
         </Seccion>
       )}
 
