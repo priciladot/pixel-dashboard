@@ -1244,7 +1244,7 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
   const [historicoRes, metaRes, porVendedorRes, perfilesRes] = await Promise.all([
     supabase.from("ventas_historico_mensual").select("anio, mes, venta_sin_iva, meta_con_iva"),
     supabase.from("metas_anuales").select("*").order("anio", { ascending: false }).limit(1).maybeSingle(),
-    supabase.from("ventas_vendedor_anual").select("vendedor_id, anio, venta_sin_iva"),
+    supabase.from("ventas_vendedor_anual").select("vendedor_id, anio, venta_sin_iva, mes_congelado_hasta"),
     supabase.from("profiles").select("id, nombre_corto"),
   ]);
 
@@ -1335,9 +1335,41 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
   } : null;
 
   const nombresPorId = new Map((perfilesRes.data as Array<{ id: string; nombre_corto: string }> ?? []).map((p) => [p.id, p.nombre_corto]));
-  const anioVendedor = m?.anio ?? fechaHoyCDMX().anio;
-  const filasVendedor = (porVendedorRes.data as Array<{ vendedor_id: string; anio: number; venta_sin_iva: number }> ?? [])
+  const anioVendedor = m?.anio ?? anioActual;
+  const filasVendedorCongelado = (porVendedorRes.data as Array<{ vendedor_id: string; anio: number; venta_sin_iva: number; mes_congelado_hasta: number | null }> ?? [])
     .filter((v) => v.anio === anioVendedor);
+
+  // El Desglose por vendedor se congelaba en una sola foto anual y nunca se
+  // volvía a tocar, mientras Ventas Totales sí recalculaba el mes en curso
+  // en vivo -- eso generó una disparidad real ($1,700,116.88, detectada y
+  // conciliada el 2026-09-24). Ahora `venta_sin_iva` es SOLO lo congelado
+  // hasta el `mes_congelado_hasta` DE CADA VENDEDOR; cualquier mes posterior
+  // (hasta el mes en curso) se suma en vivo con resultadoRealPorVendedor(),
+  // igual que ya hace Ventas Totales -- así los dos módulos nunca se vuelven
+  // a desalinear, incluso si algún vendedor se congela en un mes distinto.
+  const mesCongeladoPorVendedor = new Map(
+    filasVendedorCongelado.map((v) => [v.vendedor_id, v.mes_congelado_hasta ?? (anioVendedor === anioActual ? mesActual : 12)]),
+  );
+  const mesesFaltantesIds = anioVendedor === anioActual
+    ? Array.from({ length: mesActual }, (_, i) => i + 1)
+      .filter((mes) => filasVendedorCongelado.some((v) => mes > (mesCongeladoPorVendedor.get(v.vendedor_id) ?? mesActual)))
+      .map((mes) => `${anioVendedor}-${String(mes).padStart(2, "0")}`)
+    : [];
+  const resultadosMesesFaltantes = await Promise.all(
+    mesesFaltantesIds.map(async (id) => ({ mes: Number(id.split("-")[1]), resultados: await resultadoRealPorVendedor(id) })),
+  );
+  const liveConIvaPorVendedor = new Map<string, number>();
+  for (const { mes, resultados } of resultadosMesesFaltantes) {
+    for (const [vendedorId, r] of resultados) {
+      if (mes <= (mesCongeladoPorVendedor.get(vendedorId) ?? mesActual)) continue;
+      liveConIvaPorVendedor.set(vendedorId, (liveConIvaPorVendedor.get(vendedorId) ?? 0) + r.resultado);
+    }
+  }
+
+  const filasVendedor = filasVendedorCongelado.map((v) => {
+    const liveConIva = liveConIvaPorVendedor.get(v.vendedor_id) ?? 0;
+    return { vendedor_id: v.vendedor_id, venta_sin_iva: v.venta_sin_iva + liveConIva / 1.16 };
+  });
   const totalVendedorConIva = filasVendedor.reduce((acc, v) => acc + v.venta_sin_iva * 1.16, 0);
   const porVendedor: FilaVentaVendedorAnual[] = filasVendedor
     .map((v) => {
