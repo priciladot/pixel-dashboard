@@ -2,6 +2,8 @@ import { comparativoVentasAnual } from "@/lib/queries";
 import { Card, KpiCard } from "@/components/ui";
 import { dinero } from "@/lib/format";
 
+const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
 /**
  * Ventas Totales Comparativo (2026 vs. 2025) + Meta Anual -- Dashboard
  * Maestro. 2025 es una cifra fija (Pris la dio directo, HubSpot en vivo
@@ -30,7 +32,7 @@ export async function ComparativoVentasAnual() {
             estado={meta.avancePct >= 100 ? "cumple" : meta.avancePct >= 80 ? "arriba" : "debajo"}
             lectura={
               meta.metaAFechaIva != null
-                ? `vs. meta a la fecha ${dinero(meta.metaAFechaIva)}`
+                ? `Meta acumulada Ene-${MESES_CORTOS[Number(meta.corteEtiqueta.split("-")[1]) - 1]} (no la anual): ${dinero(meta.metaAFechaIva)}`
                 : "vs. meta anual (falta capturar meta mensual de algún mes)"
             }
           />
