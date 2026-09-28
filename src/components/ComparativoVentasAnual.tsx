@@ -15,10 +15,7 @@ export async function ComparativoVentasAnual() {
 
   const total2025SinIva = filas.reduce((acc, f) => acc + (f.venta2025SinIva ?? 0), 0);
   const total2026SinIva = filas.reduce((acc, f) => acc + (f.venta2026SinIva ?? 0), 0);
-  // Solo suma la meta de los MISMOS meses que ya tienen venta real -- para
-  // que el % de cumplimiento del total no compare 9 meses reales contra
-  // los 12 meses de meta del año completo.
-  const totalMetaConIva = filas.reduce((acc, f) => acc + (f.venta2026SinIva ? f.metaMesConIva ?? 0 : 0), 0);
+  const totalMetaConIva = filas.reduce((acc, f) => acc + (f.metaMesConIva ?? 0), 0);
   const hayAmbosAnios = filas.some((f) => f.venta2025SinIva != null) && filas.some((f) => f.venta2026SinIva != null);
 
   return (
@@ -86,10 +83,7 @@ export async function ComparativoVentasAnual() {
                   <td className="px-3 py-2 tabular" style={{ color: total2026SinIva >= total2025SinIva ? "#0ca30c" : "#d03b3b" }}>
                     {total2025SinIva > 0 ? `${(((total2026SinIva - total2025SinIva) / total2025SinIva) * 100).toFixed(1)}%` : "—"}
                   </td>
-                  <td className="px-3 py-2 tabular text-ink">
-                    {dinero(totalMetaConIva)}
-                    <div className="text-[9px] font-normal normal-case text-ink-muted">meta Ene-Sep, no la anual</div>
-                  </td>
+                  <td className="px-3 py-2 tabular text-ink">{dinero(totalMetaConIva)}</td>
                   <td className="px-3 py-2 tabular text-ink">{totalMetaConIva > 0 ? `${((total2026SinIva * 1.16 / totalMetaConIva) * 100).toFixed(1)}%` : "—"}</td>
                 </tr>
               )}
@@ -98,8 +92,9 @@ export async function ComparativoVentasAnual() {
         </div>
         <p className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
           2025 y 2026 son cifras fijas que dio Pris (no vienen de una sincronización automática) -- los meses futuros muestran "—". "Con IVA" = sin
-          IVA × 1.16. El total de "Meta 2026" en la fila Total suma solo los meses con venta real (Ene-Sep), para que el % de Cumplimiento no se diluya
-          contra meses futuros -- la meta anual completa ($108,000,000) está en la tarjeta de arriba.
+          IVA × 1.16. El total de "Meta 2026" en la fila Total es la meta anual completa (los 12 meses); por eso el % de Cumplimiento de esa fila
+          compara venta de solo 9 meses contra la meta del año completo, y es distinto al 90.2% de la tarjeta "Llevamos" de arriba (que compara solo
+          contra la meta de Ene-Sep).
         </p>
       </Card>
 
