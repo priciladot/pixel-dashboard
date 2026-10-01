@@ -226,7 +226,7 @@ function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
                 <span style={{ color }}>{etiqueta}</span>
                 {" — "}{n.titulo}
               </p>
-              <span className="text-[11px] text-ink-muted">{FORMATO_FECHA_NOTA.format(new Date(n.creado_en))}</span>
+              <span className="text-[11px] text-ink-muted">{n.periodo_etiqueta ?? FORMATO_FECHA_NOTA.format(new Date(n.creado_en))}</span>
             </div>
             {n.detalle && <p className="mt-1 whitespace-pre-line text-[12px] text-ink-soft">{n.detalle}</p>}
           </li>
