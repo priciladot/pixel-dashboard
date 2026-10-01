@@ -1250,24 +1250,45 @@ export async function comparativoVentasAnual(): Promise<ComparativoVentas> {
 
   const historico = (historicoRes.data as Array<{ anio: number; mes: number; venta_sin_iva: number; meta_con_iva: number | null }>) ?? [];
 
-  // El mes en curso (el que todavía se sigue cerrando) nunca debe quedarse
-  // con el número congelado a mano que se guardó en ventas_historico_mensual
-  // -- mientras el mes no termine, el total real cambia cada vez que cierra
-  // un negocio nuevo. Se sobreescribe con el MISMO cálculo MAX(Monday,
-  // HubSpot) que usan el Semáforo y el Centro de Mando (resultadoRealPor
-  // Vendedor), para que Ventas Totales, el Semáforo y el Centro de Mando
-  // nunca vuelvan a mostrar un número distinto para el mismo mes. Meses ya
-  // cerrados (anteriores) se dejan tal cual -- esos ya fueron confirmados a
-  // mano y el pipeline de Monday no tiene cobertura completa hacia atrás.
+  // Regla 2.2 de DOCUMENTACION_MAESTRA.md: "No existe (ni debe volver a
+  // existir) un monto congelado indefinidamente -- todo se recalcula en
+  // cada sincronización". Antes se recalculaba en vivo SOLO el mes en
+  // curso, y el resto se quedaba con la foto guardada en
+  // ventas_historico_mensual -- eso hacía que un mes recién cerrado (ej.
+  // septiembre) se congelara con un número viejo e incompleto en cuanto
+  // dejaba de ser "el mes actual", en vez de con su total real y final.
+  // Fix: se recalcula en vivo CADA carga, para todo mes desde que el
+  // pipeline de sincronización tiene cobertura completa (ver Sección 5.2)
+  // hasta el mes en curso -- nunca se vuelve a congelar. Antes de ese mes
+  // (julio/agosto 2026 y todo 2025) el pipeline de Monday no tiene
+  // cobertura completa hacia atrás, así que esos sí se quedan con el monto
+  // confirmado a mano -- es la única excepción documentada, no una
+  // decisión nueva.
+  const PRIMER_MES_COBERTURA_COMPLETA = { anio: 2026, mes: 9 };
   const { anio: anioActual, mes: mesActual } = fechaHoyCDMX();
-  const periodoActualId = `${anioActual}-${String(mesActual).padStart(2, "0")}`;
-  const resultadosMesActual = await resultadoRealPorVendedor(periodoActualId);
-  const totalMesActualConIva = Array.from(resultadosMesActual.values()).reduce((acc, r) => acc + r.resultado, 0);
-  if (totalMesActualConIva > 0) {
-    const ventaSinIvaLive = Math.round((totalMesActualConIva / 1.16) * 100) / 100;
-    const idx = historico.findIndex((h) => h.anio === anioActual && h.mes === mesActual);
+
+  const mesesPorRecalcular: Array<{ anio: number; mes: number }> = [];
+  for (let anio = PRIMER_MES_COBERTURA_COMPLETA.anio; anio <= anioActual; anio++) {
+    const mesInicio = anio === PRIMER_MES_COBERTURA_COMPLETA.anio ? PRIMER_MES_COBERTURA_COMPLETA.mes : 1;
+    const mesFin = anio === anioActual ? mesActual : 12;
+    for (let mes = mesInicio; mes <= mesFin; mes++) mesesPorRecalcular.push({ anio, mes });
+  }
+
+  const resultadosPorMes = await Promise.all(
+    mesesPorRecalcular.map(async ({ anio, mes }) => ({
+      anio,
+      mes,
+      resultados: await resultadoRealPorVendedor(`${anio}-${String(mes).padStart(2, "0")}`),
+    })),
+  );
+
+  for (const { anio, mes, resultados } of resultadosPorMes) {
+    const totalConIva = Array.from(resultados.values()).reduce((acc, r) => acc + r.resultado, 0);
+    if (totalConIva <= 0) continue;
+    const ventaSinIvaLive = Math.round((totalConIva / 1.16) * 100) / 100;
+    const idx = historico.findIndex((h) => h.anio === anio && h.mes === mes);
     if (idx >= 0) historico[idx] = { ...historico[idx], venta_sin_iva: ventaSinIvaLive };
-    else historico.push({ anio: anioActual, mes: mesActual, venta_sin_iva: ventaSinIvaLive, meta_con_iva: null });
+    else historico.push({ anio, mes, venta_sin_iva: ventaSinIvaLive, meta_con_iva: null });
   }
 
   const porAnioMes = new Map(historico.map((h) => [`${h.anio}-${h.mes}`, h.venta_sin_iva]));

@@ -136,9 +136,10 @@ Unificado con la misma fuente que el Semáforo (antes leía una tabla separada, 
 ### 5.1 Selector "Alcance" (Mensual / Anual-YTD)
 En `/maestro`, solo visible sin vendedor filtrado — alterna entre el mes seleccionado y el acumulado del año sin perder detalle por vendedor.
 
-### 5.2 Comparativo 2026 vs. 2025 y meses cerrados vs. mes en curso
+### 5.2 Comparativo 2026 vs. 2025 — qué se recalcula en vivo y qué no
 - 2025 vive como snapshot manual (cifras dadas directamente por Pris — no hay sincronización histórica para ese año).
-- 2026 combina `ventas_historico_mensual` para meses **ya cerrados** (fijos, confirmados a mano en su momento) + el **mes en curso recalculado en vivo** con `resultadoRealPorVendedor()` (nunca congelado, cambia con cada cierre nuevo).
+- 2026, julio y agosto: `ventas_historico_mensual` guarda el monto **confirmado a mano**, fijo. Es la única excepción real, documentada, y no por diseño general: el pipeline de sincronización (HubSpot/Monday) arrancó en esos meses con cobertura todavía incompleta, así que recalcularlos en vivo hoy los mostraría más bajos de lo que realmente vendieron.
+- 2026, **septiembre en adelante** (primer mes con cobertura completa del pipeline): se recalcula en vivo con `resultadoRealPorVendedor()` **en cada carga de la página**, nunca se congela — ni siquiera después de que el mes termine. Esto corrige un bug real detectado el 2026-10-01: antes solo se recalculaba "el mes en curso", así que un mes recién cerrado (septiembre) se quedaba pegado a la última foto guardada mientras era "mes actual" (en ese caso, el 21 de septiembre), mostrando un total viejo e incompleto en cuanto octubre empezaba. Regla 2.2 ("no existe ni debe volver a existir un monto congelado indefinidamente") aplica también aquí — nunca solo al mes en curso.
 
 ### 5.3 Meta Anual y "Llevamos" (metas no planas)
 - `metas_anuales` + `ventas_historico_mensual.meta_con_iva` — la meta mensual **no es pareja**, Pris la ajusta mes a mes.
