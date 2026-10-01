@@ -809,7 +809,7 @@ function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
               </p>
               <span className="text-[11px] text-ink-muted">{FORMATO_FECHA_NOTA.format(new Date(n.creado_en))}</span>
             </div>
-            {n.detalle && <p className="mt-1 text-[12px] text-ink-soft">{n.detalle}</p>}
+            {n.detalle && <p className="mt-1 whitespace-pre-line text-[12px] text-ink-soft">{n.detalle}</p>}
           </li>
         );
       })}
