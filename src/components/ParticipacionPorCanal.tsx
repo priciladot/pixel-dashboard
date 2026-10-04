@@ -8,31 +8,54 @@ const NUEVOS = ["Recomendación", "Equipo Comercial", "WhatsApp", "Instagram", "
 /**
  * Participación por Canales de Origen (Existentes vs. Nuevos) -- lista fija
  * de canales (aunque un canal tenga 0 negocios ese periodo, se muestra en
- * $0 en vez de desaparecer). % de participación es contra el GRAN TOTAL de
- * ambos bloques (Existentes + Nuevos), no contra el subtotal de su propio
- * bloque -- así los 2 TOTAL suman ~100% entre sí.
+ * $0 en vez de desaparecer). Cualquier canal que Monday traiga y no esté en
+ * la lista fija (ej. "Llamada") se agrega como fila extra en vez de
+ * descartarse, y los negocios sin canal capturado / sin fila en Monday van
+ * en un bloque "Sin clasificar": así el GRAN TOTAL cuadra siempre con la
+ * Venta oficial del periodo. % de participación es contra ese gran total.
  */
-export function ParticipacionPorCanal({ porCanal, etiqueta }: { porCanal: ResumenOperativoMonday["porCanal"]; etiqueta: string }) {
+export function ParticipacionPorCanal({
+  porCanal, etiqueta, sinCanal, soloHubspot,
+}: {
+  porCanal: ResumenOperativoMonday["porCanal"];
+  etiqueta: string;
+  sinCanal?: { deals: number; monto_con_iva: number };
+  soloHubspot?: { deals: number; monto_con_iva: number };
+}) {
   const porCanalNormalizado = new Map(porCanal.map((c) => [c.canal.trim().toLowerCase(), c]));
   const buscar = (nombre: string) => porCanalNormalizado.get(nombre.trim().toLowerCase()) ?? { canal: nombre, deals: 0, monto_con_iva: 0 };
 
-  const filasExistentes = EXISTENTES.map(buscar);
-  const filasNuevos = NUEVOS.map(buscar);
-  const granTotal = [...filasExistentes, ...filasNuevos].reduce((acc, f) => acc + f.monto_con_iva, 0);
+  const nombresFijos = new Set([...EXISTENTES, ...NUEVOS].map((n) => n.toLowerCase()));
+  const extras = porCanal.filter((c) => !nombresFijos.has(c.canal.trim().toLowerCase()));
+  const extrasExistentes = extras.filter((c) => EXISTENTES.some((e) => e.toLowerCase() === c.canal.trim().toLowerCase()));
+  const extrasNuevos = extras.filter((c) => !extrasExistentes.includes(c));
+
+  const filasExistentes = [...EXISTENTES.map(buscar), ...extrasExistentes];
+  const filasNuevos = [...NUEVOS.map(buscar), ...extrasNuevos];
+  const filasSinClasificar: ResumenOperativoMonday["porCanal"] = [];
+  if (sinCanal && sinCanal.monto_con_iva > 0) filasSinClasificar.push({ canal: "Sin canal capturado en Monday", deals: sinCanal.deals, monto_con_iva: sinCanal.monto_con_iva });
+  if (soloHubspot && soloHubspot.monto_con_iva > 0) filasSinClasificar.push({ canal: "Solo en HubSpot (sin registro en Monday)", deals: soloHubspot.deals, monto_con_iva: soloHubspot.monto_con_iva });
+
+  const granTotal = [...filasExistentes, ...filasNuevos, ...filasSinClasificar].reduce((acc, f) => acc + f.monto_con_iva, 0);
   const pct = (monto: number) => (granTotal > 0 ? (monto / granTotal) * 100 : 0);
 
   const totalExistentes = filasExistentes.reduce((acc, f) => acc + f.monto_con_iva, 0);
   const dealsExistentes = filasExistentes.reduce((acc, f) => acc + f.deals, 0);
   const totalNuevos = filasNuevos.reduce((acc, f) => acc + f.monto_con_iva, 0);
   const dealsNuevos = filasNuevos.reduce((acc, f) => acc + f.deals, 0);
+  const totalSinClasificar = filasSinClasificar.reduce((acc, f) => acc + f.monto_con_iva, 0);
+  const dealsSinClasificar = filasSinClasificar.reduce((acc, f) => acc + f.deals, 0);
 
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       <BloqueCanal titulo="Existentes" filas={filasExistentes} totalDeals={dealsExistentes} totalMonto={totalExistentes} pct={pct} />
       <BloqueCanal titulo="Nuevos" filas={filasNuevos} totalDeals={dealsNuevos} totalMonto={totalNuevos} pct={pct} />
+      {filasSinClasificar.length > 0 && (
+        <BloqueCanal titulo="Sin clasificar" filas={filasSinClasificar} totalDeals={dealsSinClasificar} totalMonto={totalSinClasificar} pct={pct} />
+      )}
       <p className="text-[11px] text-ink-muted lg:col-span-2">
-        {etiqueta} -- % de participación contra el total de negocios de Monday clasificados aquí (Existentes + Nuevos). Cantidad = número de
-        negocios; un negocio dividido entre dos vendedores cuenta una vez por cada uno.
+        {etiqueta} -- gran total {dinero(granTotal)} (Existentes + Nuevos{filasSinClasificar.length > 0 ? " + Sin clasificar" : ""}); coincide con la Venta oficial del periodo.
+        % de participación contra ese gran total. Cantidad = número de negocios; un negocio dividido entre dos vendedores cuenta una vez por cada uno.
       </p>
     </div>
   );

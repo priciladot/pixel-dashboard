@@ -142,8 +142,8 @@ export async function TorreDeControl({
   // Ventas Totales -- y el cumplimiento queda "sin dato" hasta que se capturen.
   const realSinMetas = semaforoAreaTotal && semaforoAreaTotal.objetivo === 0
     ? Array.from((await resultadoRealPorVendedor(periodoId)).values()).reduce(
-        (acc, r) => ({ resultado: acc.resultado + r.resultado, existentes: acc.existentes + r.existentes, nuevos: acc.nuevos + r.nuevos }),
-        { resultado: 0, existentes: 0, nuevos: 0 },
+        (acc, r) => ({ resultado: acc.resultado + r.resultado, existentes: acc.existentes + r.existentes, nuevos: acc.nuevos + r.nuevos, negocios: acc.negocios + (r.negocios ?? 0) }),
+        { resultado: 0, existentes: 0, nuevos: 0, negocios: 0 },
       )
     : null;
   // Vista Anual (YTD): el Centro de Mando cambia a venta acumulada del año
@@ -216,8 +216,8 @@ export async function TorreDeControl({
           objetivo_pe_iva: semaforoAreaTotal.puntoEquilibrio,
           cumplimiento_pct: semaforoAreaTotal.objetivo > 0 ? (semaforoAreaTotal.resultado / semaforoAreaTotal.objetivo) * 100 : null,
           semaforo: semaforoMetaPe(semaforoAreaTotal.resultado, semaforoAreaTotal.objetivo, semaforoAreaTotal.puntoEquilibrio),
-          deals_ganados: area?.deals_ganados ?? null,
-          ganado_sin_iva: area?.ganado_sin_iva ?? null,
+          deals_ganados: realSinMetas?.negocios ?? area?.deals_ganados ?? null,
+          ganado_sin_iva: realSinMetas ? realSinMetas.resultado / 1.16 : area?.ganado_sin_iva ?? null,
           tareas_abiertas: tareas.total,
           venta_existentes_iva: realSinMetas?.existentes ?? semaforoAreaTotal.resultadoExistentes,
           venta_nuevos_iva: realSinMetas?.nuevos ?? semaforoAreaTotal.resultadoNuevos,
@@ -442,6 +442,8 @@ export async function TorreDeControl({
         >
           <ParticipacionPorCanal
             porCanal={alcanceAnual ? operativoMondayHistorico.porCanal : operativoMonday.porCanal}
+            sinCanal={alcanceAnual ? operativoMondayHistorico.sinCanalMonday : operativoMonday.sinCanalMonday}
+            soloHubspot={alcanceAnual ? undefined : operativoMonday.soloHubspot}
             etiqueta={alcanceAnual ? "Acumulado del año" : periodo.etiqueta}
           />
         </Seccion>

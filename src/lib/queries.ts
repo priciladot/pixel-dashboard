@@ -789,6 +789,10 @@ export interface ResumenOperativoMonday {
   /** Cuántos negocios GANADOS del periodo no tienen NINGUNA fila en Monday (para contexto, no para el desglose en sí). */
   sinRegistroMonday: number;
   totalDeals: number;
+  /** Negocios ganados en Monday sin canal capturado -- no se inventa canal, se muestran aparte. */
+  sinCanalMonday: { deals: number; monto_con_iva: number };
+  /** Negocios ganados SOLO en HubSpot (sin fila en Monday): su monto sí cuenta en la venta oficial, así que se muestran aparte para que el total cuadre. */
+  soloHubspot?: { deals: number; monto_con_iva: number };
 }
 
 const CANALES_CARTERA_EXISTENTE = new Set(["contacto existente", "remarketing"]);
@@ -797,8 +801,15 @@ const CANALES_CARTERA_EXISTENTE = new Set(["contacto existente", "remarketing"])
 // normalizan al nombre real antes de agruparlos por canal, para que no
 // aparezcan como un canal aparte ni se pierdan del desglose.
 const CANAL_ALIAS: Record<string, string> = { adds: "Ads" };
+// Nombre canónico por canal (minúsculas -> nombre de pantalla), para que
+// "Contacto existente" y "Contacto Existente" sean el MISMO canal -- antes
+// se contaban por separado y, al pintarlos, uno pisaba al otro.
+const NOMBRES_CANAL = ["Contacto existente", "Remarketing", "Recomendación", "Equipo Comercial", "WhatsApp", "Instagram", "Facebook", "Mail", "Ads", "Patagon", "Prospección", "Llamada"];
+const CANAL_CANONICO = new Map(NOMBRES_CANAL.map((n) => [n.toLowerCase(), n]));
 function canonicalizarCanal(canal: string): string {
-  return CANAL_ALIAS[canal.trim().toLowerCase()] ?? canal;
+  const k = canal.trim().toLowerCase();
+  const alias = CANAL_ALIAS[k]?.toLowerCase() ?? k;
+  return CANAL_CANONICO.get(alias) ?? canal.trim();
 }
 
 /**
@@ -878,6 +889,22 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
     }
   }
 
+  // Ganados que solo existen en HubSpot: resultadoRealPorVendedor() SÍ los
+  // suma a la venta oficial, así que aquí van en su propia fila (sin
+  // inventarles canal) para que el total de esta tarjeta cuadre con ella.
+  let hubQ = supabase.from("hubspot_deals").select("vendedor_id, hubspot_id, monto_con_iva")
+    .eq("periodo_id", periodoId).eq("cerrado_ganado", true);
+  if (vendedorId) hubQ = hubQ.eq("vendedor_id", vendedorId);
+  const { data: hubData } = await hubQ.limit(5000);
+  const soloHubspotMapa = new Map<string, number>();
+  for (const h of (hubData as Array<{ vendedor_id: string | null; hubspot_id: string; monto_con_iva: number | null }>) ?? []) {
+    if (!h.vendedor_id) continue;
+    const clave = `${h.vendedor_id}-${h.hubspot_id}`;
+    if (vistos.has(clave)) continue;
+    soloHubspotMapa.set(clave, h.monto_con_iva ?? 0);
+  }
+  const sinCanal = porTipoMapa.get("sin_canal") ?? { deals: 0, monto: 0 };
+
   return {
     porTipoNegocio: [...porTipoMapa.entries()].map(([tipo, v]) => ({ tipo, deals: v.deals, monto_con_iva: v.monto })),
     porCanal: [...porCanalMapa.entries()]
@@ -885,6 +912,8 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
       .sort((a, b) => b.monto_con_iva - a.monto_con_iva),
     sinRegistroMonday,
     totalDeals: filas.length,
+    sinCanalMonday: { deals: sinCanal.deals, monto_con_iva: sinCanal.monto },
+    soloHubspot: { deals: soloHubspotMapa.size, monto_con_iva: [...soloHubspotMapa.values()].reduce((a, b) => a + b, 0) },
   };
 }
 
@@ -946,6 +975,8 @@ export async function resumenOperativoMondayHistorico(vendedorId?: string): Prom
     }
   }
 
+  const sinCanalH = porTipoMapa.get("sin_canal") ?? { deals: 0, monto: 0 };
+
   return {
     porTipoNegocio: [...porTipoMapa.entries()].map(([tipo, v]) => ({ tipo, deals: v.deals, monto_con_iva: v.monto })),
     porCanal: [...porCanalMapa.entries()]
@@ -953,6 +984,7 @@ export async function resumenOperativoMondayHistorico(vendedorId?: string): Prom
       .sort((a, b) => b.monto_con_iva - a.monto_con_iva),
     sinRegistroMonday,
     totalDeals: filas.length,
+    sinCanalMonday: { deals: sinCanalH.deals, monto_con_iva: sinCanalH.monto },
   };
 }
 
@@ -996,6 +1028,8 @@ export interface ResultadoRealVendedor {
   existentes: number;
   nuevos: number;
   resultado: number;
+  /** Negocios ganados distintos que componen el resultado (mismos que se suman arriba). */
+  negocios?: number;
 }
 
 /**
@@ -1082,7 +1116,7 @@ export async function resultadoRealPorVendedor(periodoId: string): Promise<Map<s
       const canal = (enMonday?.comoLlego ?? "").trim().toLowerCase();
       if (CANALES_CARTERA_EXISTENTE.has(canal)) existentes += monto; else nuevos += monto;
     }
-    salida.set(vendedorId, { existentes, nuevos, resultado: existentes + nuevos });
+    salida.set(vendedorId, { existentes, nuevos, resultado: existentes + nuevos, negocios: negocios.size });
   }
   return salida;
 }
