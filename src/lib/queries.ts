@@ -256,19 +256,27 @@ export interface TareaAbierta {
 }
 
 /** Tareas de HubSpot sin terminar (NOT_STARTED y cualquier estado que no sea COMPLETED). */
-export async function tareasAbiertas(vendedorId?: string): Promise<TareaAbierta[]> {
+/**
+ * Conteo exacto de tareas abiertas de HubSpot (total y vencidas). Antes se
+ * traía la lista con .limit(1000) y se contaba en memoria, así que el panel
+ * nunca mostraba más de 1,000 aunque hubiera 2,964 (conteo real al 4-oct-2026).
+ */
+export async function conteoTareasAbiertas(vendedorId?: string): Promise<{ total: number; atrasadas: number }> {
   const supabase = await createClient();
-  let q = supabase
-    .from("hubspot_engagements")
-    .select("hubspot_id, asunto, fecha, vendedor_id, estado")
-    .eq("tipo", "task")
-    .or("estado.neq.COMPLETED,estado.is.null");
-  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
-  const { data } = await q.order("fecha", { ascending: true }).limit(1000);
-
-  const hoy = new Date().toISOString();
-  return ((data as Array<{ hubspot_id: string; asunto: string | null; fecha: string | null; vendedor_id: string | null }>) ?? [])
-    .map((t) => ({ ...t, atrasada: t.fecha != null && t.fecha < hoy }));
+  const base = () => {
+    let q = supabase
+      .from("hubspot_engagements")
+      .select("hubspot_id", { count: "exact", head: true })
+      .eq("tipo", "task")
+      .or("estado.neq.COMPLETED,estado.is.null");
+    if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+    return q;
+  };
+  const [totalRes, atrasadasRes] = await Promise.all([
+    base(),
+    base().lt("fecha", new Date().toISOString()),
+  ]);
+  return { total: totalRes.count ?? 0, atrasadas: atrasadasRes.count ?? 0 };
 }
 
 export interface FilaEtapaActual {

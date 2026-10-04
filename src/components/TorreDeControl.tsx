@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import {
   kpisDelPeriodo, periodos, periodoActivoDe, resumenArea, vendedores, dealsPorRevisar,
-  tareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday, resumenOperativoMondayHistorico,
+  conteoTareasAbiertas, etapaActualDeals, dealsEstancados, motivosPerdida, resumenOperativoMonday, resumenOperativoMondayHistorico,
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
@@ -93,7 +93,7 @@ export async function TorreDeControl({
     resumenArea(periodoId),
     vendedores(),
     dealsPorRevisar(vendedorId),
-    tareasAbiertas(vendedorId),
+    conteoTareasAbiertas(vendedorId),
     etapaActualDeals(periodoId, vendedorId),
     dealsEstancados(vendedorId, 7),
     motivosPerdida(periodoId, vendedorId),
@@ -151,7 +151,7 @@ export async function TorreDeControl({
   // Comparativo de Ventas Anual ya lo muestra siempre, sin importar el mes
   // elegido arriba).
   const anualData = alcanceAnual ? await comparativoVentasAnual() : null;
-  const tareasAtrasadas = tareas.filter((t) => t.atrasada).length;
+  const tareasAtrasadas = tareas.atrasadas;
   const mapaVendedores = new Map(personas.map((p) => [p.id, p.nombre_corto]));
   const nombresVendedores = nombresDeVendedores(mapaVendedores);
   const conObjetivoPorConfirmar = equipo.some((f) => f.objetivo_confirmado === false);
@@ -177,7 +177,7 @@ export async function TorreDeControl({
         semaforo: seleccionado.semaforo,
         deals_ganados: seleccionado.deals_ganados,
         ganado_sin_iva: null as number | null,
-        tareas_abiertas: tareas.length,
+        tareas_abiertas: tareas.total,
         venta_existentes_iva: seleccionado.venta_existentes_iva,
         venta_nuevos_iva: seleccionado.venta_nuevos_iva,
         deals_marketing: null as number | null,
@@ -197,7 +197,7 @@ export async function TorreDeControl({
           semaforo: (anualData.meta.avancePct >= 100 ? "verde" : anualData.meta.avancePct >= 80 ? "amarillo" : "rojo") as Semaforo,
           deals_ganados: null as number | null,
           ganado_sin_iva: null as number | null,
-          tareas_abiertas: tareas.length,
+          tareas_abiertas: tareas.total,
           venta_existentes_iva: null as number | null,
           venta_nuevos_iva: null as number | null,
           deals_marketing: null as number | null,
@@ -218,7 +218,7 @@ export async function TorreDeControl({
           semaforo: semaforoMetaPe(semaforoAreaTotal.resultado, semaforoAreaTotal.objetivo, semaforoAreaTotal.puntoEquilibrio),
           deals_ganados: area?.deals_ganados ?? null,
           ganado_sin_iva: area?.ganado_sin_iva ?? null,
-          tareas_abiertas: tareas.length,
+          tareas_abiertas: tareas.total,
           venta_existentes_iva: realSinMetas?.existentes ?? semaforoAreaTotal.resultadoExistentes,
           venta_nuevos_iva: realSinMetas?.nuevos ?? semaforoAreaTotal.resultadoNuevos,
           deals_marketing: area?.deals_marketing ?? null,
@@ -235,7 +235,7 @@ export async function TorreDeControl({
           semaforo: area?.semaforo ?? "sin_dato",
           deals_ganados: area?.deals_ganados ?? null,
           ganado_sin_iva: area?.ganado_sin_iva ?? null,
-          tareas_abiertas: tareas.length,
+          tareas_abiertas: tareas.total,
           venta_existentes_iva: area?.venta_existentes_iva ?? null,
           venta_nuevos_iva: area?.venta_nuevos_iva ?? null,
           deals_marketing: area?.deals_marketing ?? null,
