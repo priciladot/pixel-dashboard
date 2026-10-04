@@ -93,8 +93,8 @@ export async function ComparativoVentasAnual() {
         <p className="border-t border-line bg-surface-sunk px-4 py-3 text-[11px] leading-relaxed text-ink-muted">
           2025 y 2026 son cifras fijas que dio Pris (no vienen de una sincronización automática) -- los meses futuros muestran "—". "Con IVA" = sin
           IVA × 1.16. El total de "Meta 2026" en la fila Total es la meta anual completa (los 12 meses); por eso el % de Cumplimiento de esa fila
-          compara venta de solo 9 meses contra la meta del año completo, y es distinto al 90.2% de la tarjeta "Llevamos" de arriba (que compara solo
-          contra la meta de Ene-Sep).
+          compara la venta de los meses transcurridos contra la meta del año completo, y es distinto al % de la tarjeta "Llevamos" de arriba (que
+          compara contra la meta acumulada solo de los meses transcurridos).
         </p>
       </Card>
 
