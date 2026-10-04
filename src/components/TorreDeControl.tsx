@@ -6,7 +6,7 @@ import {
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
   proyeccionPipeline, pendientesLompiAbiertos, rachaLompiWhatsapp, progresoAceleradorSemanal, estadoLompi,
-  aplicarResultadoRealAComparativa, reporteSemaforoComercial, semaforoMetaPe, comparativoVentasAnual, notasGestionVenta,
+  aplicarResultadoRealAComparativa, resultadoRealPorVendedor, reporteSemaforoComercial, semaforoMetaPe, comparativoVentasAnual, notasGestionVenta,
   type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type PendienteLompi, type AceleradorSemanal, type EstadoLompi,
   type NotaGestion,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
@@ -135,6 +135,17 @@ export async function TorreDeControl({
   // área -- antes leía periodo_resumen_area (otra tabla, capturada aparte)
   // y no coincidía con el total que ya se ve más abajo en la pantalla.
   const semaforoAreaTotal = vendedorId ? null : (await reporteSemaforoComercial(periodoId)).total;
+  // El Semáforo solo suma a quien tiene fila en metas_semaforo: un mes sin
+  // metas capturadas (ej. octubre antes de definirlas) daba $0 aunque ya
+  // hubiera ventas cerradas. Si el área no tiene objetivo, la venta oficial
+  // sale directo de resultadoRealPorVendedor() -- la misma fuente que
+  // Ventas Totales -- y el cumplimiento queda "sin dato" hasta que se capturen.
+  const realSinMetas = semaforoAreaTotal && semaforoAreaTotal.objetivo === 0
+    ? Array.from((await resultadoRealPorVendedor(periodoId)).values()).reduce(
+        (acc, r) => ({ resultado: acc.resultado + r.resultado, existentes: acc.existentes + r.existentes, nuevos: acc.nuevos + r.nuevos }),
+        { resultado: 0, existentes: 0, nuevos: 0 },
+      )
+    : null;
   // Vista Anual (YTD): el Centro de Mando cambia a venta acumulada del año
   // vs. Meta Anual, sin perder el detalle por vendedor de más abajo (el
   // Comparativo de Ventas Anual ya lo muestra siempre, sin importar el mes
@@ -200,7 +211,7 @@ export async function TorreDeControl({
           // de periodo_resumen_area, que se captura aparte y no coincidía.
           titulo: "🎯 Centro de Mando del área",
           cifraOficial: true,
-          venta_total_iva: semaforoAreaTotal.resultado,
+          venta_total_iva: realSinMetas?.resultado ?? semaforoAreaTotal.resultado,
           objetivo_total_iva: semaforoAreaTotal.objetivo,
           objetivo_pe_iva: semaforoAreaTotal.puntoEquilibrio,
           cumplimiento_pct: semaforoAreaTotal.objetivo > 0 ? (semaforoAreaTotal.resultado / semaforoAreaTotal.objetivo) * 100 : null,
@@ -208,8 +219,8 @@ export async function TorreDeControl({
           deals_ganados: area?.deals_ganados ?? null,
           ganado_sin_iva: area?.ganado_sin_iva ?? null,
           tareas_abiertas: tareas.length,
-          venta_existentes_iva: semaforoAreaTotal.resultadoExistentes,
-          venta_nuevos_iva: semaforoAreaTotal.resultadoNuevos,
+          venta_existentes_iva: realSinMetas?.existentes ?? semaforoAreaTotal.resultadoExistentes,
+          venta_nuevos_iva: realSinMetas?.nuevos ?? semaforoAreaTotal.resultadoNuevos,
           deals_marketing: area?.deals_marketing ?? null,
           monto_marketing_sin_iva: area?.monto_marketing_sin_iva ?? null,
           ciclo_cierre_promedio: area?.ciclo_cierre_promedio ?? null,
@@ -310,7 +321,7 @@ export async function TorreDeControl({
             <KpiCard
               etiqueta="Cumplimiento"
               valor={pct(resumen.cumplimiento_pct)}
-              apoyo={`Meta ${dineroCorto(resumen.objetivo_total_iva)}${resumen.objetivo_pe_iva ? ` · PE ${dineroCorto(resumen.objetivo_pe_iva)}` : ""}`}
+              apoyo={resumen.objetivo_total_iva ? `Meta ${dineroCorto(resumen.objetivo_total_iva)}${resumen.objetivo_pe_iva ? ` · PE ${dineroCorto(resumen.objetivo_pe_iva)}` : ""}` : "Meta del mes sin capturar"}
               lectura={
                 resumen.cumplimiento_pct == null ? undefined :
                 resumen.semaforo === "verde" ? "En objetivo" :
