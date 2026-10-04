@@ -7,6 +7,8 @@
  * rompe por un registro incompleto de HubSpot.
  */
 
+import { fechaCalendarioCDMX } from "@/lib/fecha";
+
 export const SIN_ASIGNAR = "Sin asignar / Por revisar";
 export const IVA = 1.16;
 
@@ -151,7 +153,7 @@ export function periodoDe(
   ventana: "kpi_4_semanas" | "calendario" = "kpi_4_semanas",
 ): string | null {
   if (!fechaISO) return null;
-  const f = fechaISO.slice(0, 10);
+  const f = fechaCalendarioCDMX(fechaISO);
   const p = dic.periodos.find((p) =>
     ventana === "kpi_4_semanas" ? f >= p.kpi_inicio && f <= p.kpi_fin : f >= p.cal_inicio && f <= p.cal_fin,
   );

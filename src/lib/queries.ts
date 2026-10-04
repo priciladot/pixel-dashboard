@@ -896,9 +896,10 @@ export async function resumenOperativoMonday(periodoId: string, vendedorId?: str
     .eq("periodo_id", periodoId).eq("cerrado_ganado", true);
   if (vendedorId) hubQ = hubQ.eq("vendedor_id", vendedorId);
   const { data: hubData } = await hubQ.limit(5000);
+  const idsMkt = await idsDeMarketing();
   const soloHubspotMapa = new Map<string, number>();
   for (const h of (hubData as Array<{ vendedor_id: string | null; hubspot_id: string; monto_con_iva: number | null }>) ?? []) {
-    if (!h.vendedor_id) continue;
+    if (!h.vendedor_id || idsMkt.has(h.vendedor_id)) continue;
     const clave = `${h.vendedor_id}-${h.hubspot_id}`;
     if (vistos.has(clave)) continue;
     soloHubspotMapa.set(clave, h.monto_con_iva ?? 0);
@@ -1024,6 +1025,17 @@ function semaforoDe(resultado: number, verde: number, amarillo: number): "verde"
  * y confirmó que puede diferir del total oficial de HubSpot cuando
  * Monday atribuye manualmente un monto combinado a un cierre.
  */
+/**
+ * Personas de Marketing (rol marketing / marketing_lead): no son vendedores
+ * comisionados, así que un negocio que HubSpot les asigne por error (ej. uno
+ * de prueba a nombre de Dana) no cuenta como venta del área.
+ */
+async function idsDeMarketing(): Promise<Set<string>> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("profiles").select("id").in("rol", ["marketing", "marketing_lead"]);
+  return new Set(((data as Array<{ id: string }>) ?? []).map((p) => p.id));
+}
+
 export interface ResultadoRealVendedor {
   existentes: number;
   nuevos: number;
@@ -1066,11 +1078,12 @@ export interface ResultadoRealVendedor {
 export async function resultadoRealPorVendedor(periodoId: string): Promise<Map<string, ResultadoRealVendedor>> {
   const supabase = await createClient();
 
-  const [dealsRes, hubspotDealsRes] = await Promise.all([
+  const [dealsRes, hubspotDealsRes, idsMkt] = await Promise.all([
     supabase.from("v_deals_operativo").select("vendedor_id, hubspot_id, como_llego, monto_atribuido_con_iva, cerrado_ganado")
       .eq("periodo_id", periodoId).not("monday_elemento_id", "is", null).eq("cerrado_ganado", true),
     supabase.from("hubspot_deals").select("vendedor_id, hubspot_id, monto_con_iva")
       .eq("periodo_id", periodoId).eq("cerrado_ganado", true),
+    idsDeMarketing(),
   ]);
 
   const dealsCrudos = (dealsRes.data as Array<{ vendedor_id: string | null; hubspot_id: string; como_llego: string | null; monto_atribuido_con_iva: number | null }>) ?? [];
@@ -1084,7 +1097,7 @@ export async function resultadoRealPorVendedor(periodoId: string): Promise<Map<s
   type EntradaMonday = { monto: number; comoLlego: string | null };
   const mondayPorVendedor = new Map<string, Map<string, EntradaMonday>>();
   for (const d of dealsCrudos) {
-    if (!d.vendedor_id) continue;
+    if (!d.vendedor_id || idsMkt.has(d.vendedor_id)) continue;
     const porNegocio = mondayPorVendedor.get(d.vendedor_id) ?? new Map<string, EntradaMonday>();
     if (!porNegocio.has(d.hubspot_id)) {
       porNegocio.set(d.hubspot_id, { monto: d.monto_atribuido_con_iva ?? 0, comoLlego: d.como_llego });
@@ -1095,7 +1108,7 @@ export async function resultadoRealPorVendedor(periodoId: string): Promise<Map<s
   const hubspotRows = (hubspotDealsRes.data as Array<{ vendedor_id: string | null; hubspot_id: string; monto_con_iva: number | null }>) ?? [];
   const hubspotPorVendedor = new Map<string, Map<string, number>>();
   for (const r of hubspotRows) {
-    if (!r.vendedor_id) continue;
+    if (!r.vendedor_id || idsMkt.has(r.vendedor_id)) continue;
     const porNegocio = hubspotPorVendedor.get(r.vendedor_id) ?? new Map<string, number>();
     porNegocio.set(r.hubspot_id, r.monto_con_iva ?? 0);
     hubspotPorVendedor.set(r.vendedor_id, porNegocio);

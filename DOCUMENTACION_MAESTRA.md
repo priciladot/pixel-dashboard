@@ -228,6 +228,10 @@ Al verificar el punto 8.2, se encontró que `filasComparativa` (y de ahí `selec
 ### 8.7 Zona horaria — ya corregida en el código
 Todo cálculo de "hoy"/"mes en curso" usa **America/Mexico_City**, no UTC. Se creó `src/lib/fecha.ts` con tres helpers (`hoyCDMX()`, `fechaHoyCDMX()`, `inicioDiaCDMX()`) y se corrigieron **todos** los puntos detectados: `periodoActivoDe`, la racha de Lompi, el Acelerador Semanal, `comparativoVentasAnual` (mes en curso), el desglose anual por vendedor, `semanaActualYVecinas`, `disciplinaComercial`, `proyeccionPipeline`, `tareasMarketing`, la etiqueta "En curso/Pasada/Próxima" de Disciplina Comercial en la UI, la táctica de la semana del Coach Comercial, y las 4 rutas de cron (`sincronizar-todo` — la única activa según `vercel.json` — y las 3 heredadas ya desconectadas del cron automático, actualizadas por consistencia). Los usos de `new Date().toISOString()` que comparan **timestamps completos** (no fechas de calendario) se dejaron igual a propósito — ahí no hay desfase posible, un instante UTC es el mismo instante sin importar la zona horaria.
 
+**Asignación de periodo (corregido 2026-10-04):** el periodo (mes) de un negocio ganado también se calcula con la fecha de cierre **en hora de México**, no en UTC (`fechaCalendarioCDMX()` en `src/lib/fecha.ts`, usada por `periodoDe()`). Antes un cierre del 30-sep a las 8:46 p.m. (We Love Carts) caía en octubre, y uno del 31-ago a las 6:00 p.m. (Plot) caía en septiembre, contra lo que Monday tiene capturado. Las fechas simples (medianoche UTC exacta) se dejan igual.
+
+**Marketing no cuenta como venta (2026-10-04):** `resultadoRealPorVendedor()` ignora negocios cuyo dueño tiene rol `marketing` o `marketing_lead` (ej. un negocio de prueba asignado a Dana) — no son vendedores comisionados.
+
 ---
 
 ## 9. Protocolo Obligatorio de Carga y Cambios Futuros
