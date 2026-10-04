@@ -141,7 +141,7 @@ export async function TorreDeControl({
   // sale directo de resultadoRealPorVendedor() -- la misma fuente que
   // Ventas Totales -- y el cumplimiento queda "sin dato" hasta que se capturen.
   const realSinMetas = semaforoAreaTotal && semaforoAreaTotal.objetivo === 0
-    ? Array.from((await resultadoRealPorVendedor(periodoId)).values()).reduce(
+    ? Array.from((await resultadoRealPorVendedor(periodoId)).values()).reduce<{ resultado: number; existentes: number; nuevos: number; negocios: number }>(
         (acc, r) => ({ resultado: acc.resultado + r.resultado, existentes: acc.existentes + r.existentes, nuevos: acc.nuevos + r.nuevos, negocios: acc.negocios + (r.negocios ?? 0) }),
         { resultado: 0, existentes: 0, nuevos: 0, negocios: 0 },
       )
