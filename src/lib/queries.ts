@@ -3051,6 +3051,8 @@ export interface NotaGestion {
   creado_en: string;
   /** Etiqueta de periodo libre (ej. "mes de septiembre", "mes de agosto y septiembre") -- cuando está presente, sustituye la fecha de creación formateada en la tarjeta. */
   periodo_etiqueta: string | null;
+  /** Fecha real de registro en el sistema (opcional): se muestra aparte de la fecha/periodo de los hechos. */
+  registrado_en: string | null;
 }
 
 /** Notas de gestión individual (marketing_notas) -- antecedente permanente, no un pendiente con fecha límite. */

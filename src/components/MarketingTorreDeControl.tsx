@@ -208,6 +208,7 @@ function SemaforoMktBadge({ estado }: { estado: "Verde" | "Amarillo" | "Rojo" | 
 
 /** Pendientes/tareas asignadas a mano (marketing_tareas) -- rojo si ya venció, amarillo si vence en 2 días o menos. */
 const FORMATO_FECHA_NOTA = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "long", year: "numeric" });
+const FORMATO_FECHA_REGISTRO = new Intl.DateTimeFormat("es-MX", { timeZone: "America/Mexico_City", day: "numeric", month: "long", year: "numeric" });
 
 /** Notas de gestión (marketing_notas) -- llamadas de atención / reconocimientos, sin fecha límite ni estatus. */
 function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
@@ -227,7 +228,10 @@ function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
                 <span style={{ color }}>{etiqueta}</span>
                 {" — "}{n.titulo}
               </p>
-              <span className="text-[11px] text-ink-muted">{n.periodo_etiqueta ?? FORMATO_FECHA_NOTA.format(new Date(n.creado_en))}</span>
+              <div className="text-right text-[11px] text-ink-muted">
+                <span>{n.periodo_etiqueta ?? FORMATO_FECHA_NOTA.format(new Date(n.creado_en))}</span>
+                {n.registrado_en && <span className="block text-[10px] opacity-80">Registrada el {FORMATO_FECHA_REGISTRO.format(new Date(n.registrado_en))}</span>}
+              </div>
             </div>
             {n.detalle && <p className="mt-1 whitespace-pre-line text-[12px] text-ink-soft">{n.detalle}</p>}
           </li>
