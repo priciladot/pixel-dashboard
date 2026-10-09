@@ -133,7 +133,7 @@ export async function MarketingTorreDeControl({
           historia (reconocimientos/llamadas de atención) antes de ver el
           detalle de KPIs. */}
       {notas.length > 0 && (
-        <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
+        <Seccion titulo="📝 Notas de gestión" descripcion="Historial de reconocimientos, seguimiento al desempeño y llamadas de atención formales.">
           <InfoLlamadaAtencion />
           <NotasGestionLista notas={notas} />
         </Seccion>

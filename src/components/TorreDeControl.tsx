@@ -271,7 +271,7 @@ export async function TorreDeControl({
       <AnuncioTemporal rol={sesionRol} correo={sesionCorreo} verTodos={esDireccionSesion} />
 
       {seleccionado && notasGestion.length > 0 && (
-        <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
+        <Seccion titulo="📝 Notas de gestión" descripcion="Historial de reconocimientos, seguimiento al desempeño y llamadas de atención formales.">
           <InfoLlamadaAtencion />
           <NotasGestionLista notas={notasGestion} />
         </Seccion>
