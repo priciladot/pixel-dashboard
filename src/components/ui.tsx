@@ -29,6 +29,26 @@ export function Seccion({
   );
 }
 
+/**
+ * Aclaración desplegable (cerrada por defecto) bajo el título de "Notas de
+ * gestión": explica cuándo se registra una llamada de atención formal.
+ * <details> nativo -- abre/cierra con un clic, sin JavaScript.
+ */
+export function InfoLlamadaAtencion() {
+  return (
+    <details className="mb-3">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-[12px] text-ink-muted hover:text-ink-soft [&::-webkit-details-marker]:hidden">
+        <span aria-hidden="true">ⓘ</span> ¿Cuándo se registra una llamada de atención formal?
+      </summary>
+      <p className="mt-1.5 max-w-3xl rounded-card border border-line bg-surface-sunk px-3.5 py-2.5 text-[12px] leading-relaxed text-ink-soft">
+        Las llamadas de atención formales se registran cuando un incumplimiento persiste durante más de tres semanas y se han realizado al menos
+        tres recordatorios o intervenciones internas sin observar una mejora sostenida. Previamente, se brinda al colaborador la oportunidad de
+        corregir la situación y solicitar apoyo. Estos registros constituyen antecedentes permanentes de gestión y no tareas pendientes.
+      </p>
+    </details>
+  );
+}
+
 export function Vacio({ titulo, detalle }: { titulo: string; detalle?: string }) {
   return (
     <Card className="px-5 py-8 text-center">

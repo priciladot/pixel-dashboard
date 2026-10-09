@@ -7,7 +7,7 @@ import {
   type ResumenMarketingMes, type MetricaCanal, type NotaGestion, type PanelGerenteMarketing,
 } from "@/lib/queries";
 import type { EstatusReto } from "@/lib/queries";
-import { Card, Seccion, Vacio } from "@/components/ui";
+import { Card, InfoLlamadaAtencion, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { formatearRangoFechas, dinero } from "@/lib/format";
 
@@ -134,6 +134,7 @@ export async function MarketingTorreDeControl({
           detalle de KPIs. */}
       {notas.length > 0 && (
         <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
+          <InfoLlamadaAtencion />
           <NotasGestionLista notas={notas} />
         </Seccion>
       )}

@@ -16,7 +16,7 @@ import {
   type DisciplinaComercial as TDisciplinaComercial, type EstatusReto, type RetoSemana,
   type ProyeccionPipeline, type GrupoPipelineProyectado,
 } from "@/lib/queries";
-import { Card, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
+import { Card, InfoLlamadaAtencion, KpiCard, Seccion, Vacio, SemaforoBadge } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
 import { TablaComparativa } from "@/components/TablaComparativa";
 import { ReporteSemaforoComercial } from "@/components/ReporteSemaforoComercial";
@@ -272,6 +272,7 @@ export async function TorreDeControl({
 
       {seleccionado && notasGestion.length > 0 && (
         <Seccion titulo="📝 Notas de gestión" descripcion="Llamadas de atención y reconocimientos -- antecedente permanente, no un pendiente con fecha límite.">
+          <InfoLlamadaAtencion />
           <NotasGestionLista notas={notasGestion} />
         </Seccion>
       )}
