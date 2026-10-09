@@ -72,7 +72,12 @@ export async function sincronizarTodo(
         buscarDealsCreados(desde, hasta),
         buscarDealsAbiertos(),
       ]);
-      const sinContacto = enriquecerConOwners([...cerrados, ...creados, ...abiertos], owners);
+      // Un mismo negocio puede salir en dos o tres de estas consultas (ej.
+      // creado y cerrado en la ventana, o abierto con fecha de cierre dentro
+      // de ella). Se deja una sola copia por hubspot_id: repetirlo no es un
+      // duplicado real y antes lo marcaba como "posible duplicado".
+      const unicos = [...new Map([...cerrados, ...creados, ...abiertos].map((d) => [String(d.hubspot_id), d])).values()];
+      const sinContacto = enriquecerConOwners(unicos, owners);
       const crudos = await enriquecerConAsociaciones(sinContacto);
       const conContacto = crudos.filter((d) => (d.contacto_ids?.length ?? 0) > 0).length;
       const r = await ingestarDeals(db, crudos, {

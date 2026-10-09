@@ -1230,7 +1230,7 @@ function VentasProductosTabla({
 const ETIQUETA_ALERTA: Record<AlertaAuditoria["tipo"], string> = {
   ganado_sin_monday: "Falta en Monday",
   monday_sin_canal: "Canal sin capturar",
-  sin_atencion: "Sin atención",
+  sin_atencion: "Sin información suficiente",
 };
 
 /** Discrepancias HubSpot vs. Monday y clientes sin seguimiento real -- convierte el hueco de captura en pendientes concretos. */

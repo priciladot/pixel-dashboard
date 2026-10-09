@@ -191,10 +191,16 @@ export interface DealPorRevisar {
  */
 export async function dealsPorRevisar(vendedorId?: string): Promise<DealPorRevisar[]> {
   const supabase = await createClient();
-  let q = supabase.from("v_deals_por_revisar").select("*").limit(500);
+  let q = supabase.from("v_deals_por_revisar").select("*").limit(2000);
   if (vendedorId) q = q.eq("vendedor_id", vendedorId);
   const { data } = await q;
-  const filas = (data as Array<Omit<DealPorRevisar, "empresa" | "correo_cliente" | "productos" | "canal">>) ?? [];
+  // La marca "duplicado" solo significaba "este negocio salió en dos de las
+  // consultas a HubSpot" (hubspot_id es llave primaria: no puede haber dos
+  // filas iguales), no un duplicado real. Se ignora aquí aunque quede
+  // guardada en negocios viejos que la sincronización aún no refresca.
+  const filas = ((data as Array<Omit<DealPorRevisar, "empresa" | "correo_cliente" | "productos" | "canal">>) ?? [])
+    .map((f) => ({ ...f, flags: (f.flags ?? []).filter((m) => m !== "duplicado") }))
+    .filter((f) => f.flags.length > 0);
   if (filas.length === 0) return [];
 
   const [{ data: mondayRows }, mapaCorreoContacto] = await Promise.all([
@@ -1621,7 +1627,6 @@ async function sinAtencion(
   return candidatos.map((f) => {
     const vendedor = f.vendedor_id ? mapaVendedores.get(f.vendedor_id) ?? "Sin asignar" : "Sin asignar";
     const negocio = f.nombre ?? `#${f.hubspot_id}`;
-    const diasTexto = f.dias === Number.MAX_SAFE_INTEGER ? "nunca ha tenido" : `lleva ${f.dias} días sin`;
     const monday = mapaMonday.get(f.hubspot_id);
     return {
       tipo: "sin_atencion" as const,
@@ -1629,7 +1634,7 @@ async function sinAtencion(
       vendedor_id: f.vendedor_id,
       nombre: f.nombre,
       monto_con_iva: f.monto_con_iva,
-      mensaje: `${vendedor}: "${negocio}" ${diasTexto} ningún seguimiento o nota de atención registrada.`,
+      mensaje: `Sin información suficiente: "${negocio}" (${vendedor}) no muestra notas, tareas ni reuniones ${f.dias === Number.MAX_SAFE_INTEGER ? "registradas en HubSpot" : `en ${f.dias} días`}. Los correos todavía no se sincronizan, así que no se puede confirmar falta de seguimiento -- valida en HubSpot.`,
       empresa: f.empresa,
       correo_cliente: mapaCorreoContacto.get(f.hubspot_id) ?? monday?.correo_cliente ?? null,
       productos: monday?.productos ?? null,
