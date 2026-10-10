@@ -5,8 +5,8 @@
  * Historial de etapas usa el mismo endpoint de deals con
  * `propertiesWithHistory`, así que solo necesita crm.objects.deals.read (ya
  * activo). Actividades/tareas SÍ son objetos CRM separados, cada uno con su
- * propio scope (crm.objects.calls.read, .emails.read, .meetings.read,
- * .notes.read, .tasks.read) — si el Private App no los tiene, HubSpot
+ * propio scope (calls, meetings, notes y tasks se leen con los scopes de contactos/negocios;
+ * los correos necesitan `sales-email-read`) — si el Private App no los tiene, HubSpot
  * regresa 403 para ESE tipo únicamente. Por eso cada tipo se trae por
  * separado y un 403 en uno no tumba a los demás: queda registrado en
  * `sinPermiso` para que la corrida lo reporte en vez de fallar entera.

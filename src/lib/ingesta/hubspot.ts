@@ -311,6 +311,8 @@ export function enriquecerConOwners(deals: DealCrudo[], owners: Owner[]): DealCr
   ]));
   return deals.map((d) => ({
     ...d,
-    owner_nombre: d.owner_hubspot_id ? porId.get(String(d.owner_hubspot_id)) ?? null : null,
+    owner_nombre: d.owner_hubspot_id ? porId.get(String(d.owner_hubspot_id)) || null : null,
+    // listarOwners() solo trae usuarios activos: un id que no aparece ahí es un dueño inactivo.
+    owner_activo: d.owner_hubspot_id ? porId.has(String(d.owner_hubspot_id)) : null,
   }));
 }

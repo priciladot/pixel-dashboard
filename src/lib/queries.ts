@@ -199,7 +199,12 @@ export async function dealsPorRevisar(vendedorId?: string): Promise<DealPorRevis
   // filas iguales), no un duplicado real. Se ignora aquí aunque quede
   // guardada en negocios viejos que la sincronización aún no refresca.
   const filas = ((data as Array<Omit<DealPorRevisar, "empresa" | "correo_cliente" | "productos" | "canal">>) ?? [])
-    .map((f) => ({ ...f, flags: (f.flags ?? []).filter((m) => m !== "duplicado") }))
+    .map((f) => {
+      const conDueno = Boolean((f as { owner_hubspot_id?: string | null }).owner_hubspot_id);
+      // "owner_vacio" guardado en un negocio que SÍ tiene dueño en HubSpot era
+      // una marca equivocada (dueño inactivo): no es un error de captura.
+      return { ...f, flags: (f.flags ?? []).filter((m) => m !== "duplicado" && m !== "owner_inactivo" && !(m === "owner_vacio" && conDueno)) };
+    })
     .filter((f) => f.flags.length > 0);
   if (filas.length === 0) return [];
 

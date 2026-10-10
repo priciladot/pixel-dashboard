@@ -1128,8 +1128,9 @@ function accionBandera(flag: string, d: DealPorRevisar): string {
   const negocio = d.nombre ?? `#${d.hubspot_id}`;
   switch (flag) {
     case "owner_vacio":
+      return `Admin: el negocio "${negocio}" no tiene dueño en HubSpot, asignarlo.`;
     case "owner_sin_mapear":
-      return `Admin: asignar vendedor a "${negocio}" en HubSpot.`;
+      return `Dueño activo sin perfil en el dashboard: actualizar "${negocio}" (asignarlo a un vendedor o crear el perfil).`;
     case "diferido_sin_fecha_reactivacion":
       return `Admin: definir fecha de reactivación en HubSpot para "${negocio}".`;
     case "monto_faltante":

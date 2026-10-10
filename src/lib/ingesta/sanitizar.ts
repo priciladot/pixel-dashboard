@@ -15,6 +15,7 @@ export const IVA = 1.16;
 export type Flag =
   | "owner_sin_mapear"
   | "owner_vacio"
+  | "owner_inactivo"
   | "monto_faltante"
   | "monto_invalido"
   | "fecha_faltante"
@@ -31,6 +32,8 @@ export interface DealCrudo {
   nombre?: string | null;
   owner_hubspot_id?: string | null;
   owner_nombre?: string | null;
+  /** false = el dueño ya no aparece como usuario activo en HubSpot (exempleado / cuenta vieja). undefined = no se sabe. */
+  owner_activo?: boolean | null;
   monto?: number | string | null;      // sin IVA
   etapa?: string | null;
   cerrado_ganado?: boolean | null;
@@ -142,6 +145,13 @@ export function resolverVendedor(
     const id = dic.porAlias.get(normalizar(d.owner_nombre));
     if (id) return { vendedor_id: id, flag: null };
     return { vendedor_id: null, flag: "owner_sin_mapear" };
+  }
+  // Tiene dueño en HubSpot pero el dashboard no lo conoce. Un dueño que ya no
+  // está activo (exempleado) no es un error de captura y no cuenta para nadie;
+  // uno activo sin perfil sí necesita que lo actualicen. Sin dueño en HubSpot
+  // es el único caso de "owner_vacio".
+  if (d.owner_hubspot_id) {
+    return { vendedor_id: null, flag: d.owner_activo === false ? "owner_inactivo" : "owner_sin_mapear" };
   }
   return { vendedor_id: null, flag: "owner_vacio" };
 }
