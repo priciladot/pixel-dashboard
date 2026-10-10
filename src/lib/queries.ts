@@ -1654,7 +1654,7 @@ async function sinAtencion(
       vendedor_id: f.vendedor_id,
       nombre: f.nombre,
       monto_con_iva: f.monto_con_iva,
-      mensaje: `Sin información suficiente: "${negocio}" (${vendedor}) no muestra notas, tareas ni reuniones ${f.dias === Number.MAX_SAFE_INTEGER ? "registradas en HubSpot" : `en ${f.dias} días`}. Los correos todavía no se sincronizan, así que no se puede confirmar falta de seguimiento -- valida en HubSpot.`,
+      mensaje: `Sin información suficiente: "${negocio}" (${vendedor}) no muestra notas, tareas ni reuniones ${f.dias === Number.MAX_SAFE_INTEGER ? "registradas en HubSpot" : `en ${f.dias} días`}. Los correos se sincronizan solo desde el 1 de octubre, así que para fechas anteriores no se puede confirmar falta de seguimiento -- valida en HubSpot.`,
       empresa: f.empresa,
       correo_cliente: mapaCorreoContacto.get(f.hubspot_id) ?? monday?.correo_cliente ?? null,
       productos: monday?.productos ?? null,
