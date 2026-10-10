@@ -191,9 +191,17 @@ export interface DealPorRevisar {
  */
 export async function dealsPorRevisar(vendedorId?: string): Promise<DealPorRevisar[]> {
   const supabase = await createClient();
-  let q = supabase.from("v_deals_por_revisar").select("*").limit(2000);
-  if (vendedorId) q = q.eq("vendedor_id", vendedorId);
-  const { data } = await q;
+  // El servidor devuelve máximo 1,000 filas por consulta: se pagina para no
+  // cortar la lista en silencio (hay más de 1,000 negocios marcados).
+  const filasCrudas: unknown[] = [];
+  for (let desde = 0; desde < 10000; desde += 1000) {
+    let q = supabase.from("v_deals_por_revisar").select("*").order("hubspot_id", { ascending: true }).range(desde, desde + 999);
+    if (vendedorId) q = q.eq("vendedor_id", vendedorId);
+    const { data: pagina } = await q;
+    filasCrudas.push(...((pagina as unknown[]) ?? []));
+    if (!pagina || pagina.length < 1000) break;
+  }
+  const data = filasCrudas;
   // La marca "duplicado" solo significaba "este negocio salió en dos de las
   // consultas a HubSpot" (hubspot_id es llave primaria: no puede haber dos
   // filas iguales), no un duplicado real. Se ignora aquí aunque quede
@@ -208,14 +216,17 @@ export async function dealsPorRevisar(vendedorId?: string): Promise<DealPorRevis
     .filter((f) => f.flags.length > 0);
   if (filas.length === 0) return [];
 
-  const [{ data: mondayRows }, mapaCorreoContacto] = await Promise.all([
-    supabase.from("monday_cierres").select("hubspot_id, empresa, correo_cliente, productos, como_llego")
-      .in("hubspot_id", filas.map((f) => f.hubspot_id)),
-    correoDeContactoPorDeal(supabase, filas.map((f) => f.hubspot_id)),
+  type FilaMonday = { hubspot_id: string; empresa: string | null; correo_cliente: string | null; productos: string | null; como_llego: string | null };
+  const idsFilas = filas.map((f) => f.hubspot_id);
+  const [mondayRows, mapaCorreoContacto] = await Promise.all([
+    // Lotes chicos: con más de mil ids el .in(...) no cabe en la URL de la consulta.
+    porLotes(idsFilas, 150, async (lote) => {
+      const { data: r } = await supabase.from("monday_cierres").select("hubspot_id, empresa, correo_cliente, productos, como_llego").in("hubspot_id", lote);
+      return (r as FilaMonday[]) ?? [];
+    }),
+    correoDeContactoPorDeal(supabase, idsFilas),
   ]);
-  const mapaMonday = new Map((
-    (mondayRows as Array<{ hubspot_id: string; empresa: string | null; correo_cliente: string | null; productos: string | null; como_llego: string | null }>) ?? []
-  ).map((m) => [m.hubspot_id, m]));
+  const mapaMonday = new Map(mondayRows.map((m) => [m.hubspot_id, m]));
 
   return filas.map((f) => {
     const monday = mapaMonday.get(f.hubspot_id);
@@ -325,15 +336,19 @@ async function correoDeContactoPorDeal(
 ): Promise<Map<string, string | null>> {
   if (hubspotIds.length === 0) return new Map();
 
-  const { data: dealsConContacto } = await supabase
-    .from("hubspot_deals").select("hubspot_id, contacto_ids").in("hubspot_id", hubspotIds);
-  const filas = (dealsConContacto as Array<{ hubspot_id: string; contacto_ids: string[] }>) ?? [];
+  const filas = await porLotes(hubspotIds, 150, async (lote) => {
+    const { data } = await supabase.from("hubspot_deals").select("hubspot_id, contacto_ids").in("hubspot_id", lote);
+    return (data as Array<{ hubspot_id: string; contacto_ids: string[] }>) ?? [];
+  });
 
   const idsContacto = [...new Set(filas.flatMap((f) => f.contacto_ids ?? []))];
   if (idsContacto.length === 0) return new Map();
 
-  const { data: contactos } = await supabase.from("hubspot_contacts").select("hubspot_id, email").in("hubspot_id", idsContacto);
-  const mapaEmail = new Map(((contactos as Array<{ hubspot_id: string; email: string | null }>) ?? []).map((c) => [c.hubspot_id, c.email]));
+  const contactos = await porLotes(idsContacto, 150, async (lote) => {
+    const { data } = await supabase.from("hubspot_contacts").select("hubspot_id, email").in("hubspot_id", lote);
+    return (data as Array<{ hubspot_id: string; email: string | null }>) ?? [];
+  });
+  const mapaEmail = new Map(contactos.map((c) => [c.hubspot_id, c.email]));
 
   const porDeal = new Map<string, string | null>();
   for (const f of filas) {
