@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { esDireccion, requiereSesion } from "@/lib/auth";
+import { esDireccion, esTalentoHumano, requiereSesion } from "@/lib/auth";
 import { perfilPorId } from "@/lib/queries";
 import { MarketingTorreDeControl } from "@/components/MarketingTorreDeControl";
 
@@ -29,7 +29,7 @@ export default async function VistaMarketing({
 
   return (
     <>
-      {!propio && esDireccion(sesion) && (
+      {!propio && (esDireccion(sesion) || esTalentoHumano(sesion)) && (
         <p className="mb-3 text-[11px] text-ink-muted">Vista de supervisión — este perfil no es el tuyo.</p>
       )}
       <MarketingTorreDeControl periodoIdParam={sp.periodo} vendedorIdForzado={persona.id} mostrarEncabezado />

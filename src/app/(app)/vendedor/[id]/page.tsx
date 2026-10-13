@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { esDireccion, requiereSesion } from "@/lib/auth";
+import { esDireccion, esTalentoHumano, requiereSesion } from "@/lib/auth";
 import { contextoMercado, evaluacionDe, historicoDe, perfilPorId, periodos, periodoActivoDe } from "@/lib/queries";
 import { Card, Seccion, Vacio } from "@/components/ui";
 import { Filtros } from "@/components/Filtros";
@@ -65,7 +65,7 @@ export default async function VistaVendedor({
               ventana === "kpi_4_semanas" ? periodo.kpi_fin : periodo.cal_fin,
             )}
           </p>
-          {!propio && esDireccion(sesion) && (
+          {!propio && (esDireccion(sesion) || esTalentoHumano(sesion)) && (
             <p className="mt-1 text-[11px] text-ink-muted">Vista de supervisión — este perfil no es el tuyo.</p>
           )}
         </div>

@@ -83,6 +83,7 @@ Se corrió la nueva regla de la Sección 2.1 contra los datos reales de julio y 
 - Equipo real: **Dana = marketing_lead** (única); **Xuan, Santiago, Melissa, Alan = marketing** (4 miembros, cada uno ve solo su propio panel).
 - Vendedor se mapea a Monday por `profiles.monday_person_id` (id numérico de persona, no por nombre/alias de texto — a propósito, para evitar el mismo bug de acentos/duplicados que ya salió del lado de ventas).
 - Acceso a `/mkt` (panel de equipo): `admin`, `supervisor` o `marketing_lead`. Un miembro normal de Marketing no puede entrar ahí, solo a su propio `/mkt/[id]`.
+- **`talento_humano` (solo lectura, migraciones 044/045):** ve el directorio `/equipo` y, desde ahí, `/vendedor/[id]` y `/mkt/[id]` de cada persona. A nivel BD, `es_direccion()` lo incluye para **leer** (perfiles de ventas, vistas con guardia) y 4 tablas de Marketing tienen política `*_th_read` solo SELECT; la **escritura** sigue solo en `es_admin()` / `es_marketing_lead()` (que no lo incluyen) y `notas_gestion_ventas` pasó a `es_direccion_escritura()` (admin/supervisor). En el código `esDireccion()` NO lo incluye: no entra a `/maestro`, `/mkt` (equipo) ni `/ingesta`. Alta: invitar al usuario en Supabase Auth con `user_metadata.rol = talento_humano`.
 
 ### 3.2 Panel de Gerente de Marketing (los 5 KPIs de Dana, a nivel área/mes)
 Visible solo en el perfil de quien tiene `rol = "marketing_lead"`.

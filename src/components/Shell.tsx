@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { esAdmin, esDireccion, esMarketing, esMarketingLead } from "@/lib/auth";
+import { esAdmin, esDireccion, esMarketing, esMarketingLead, esTalentoHumano } from "@/lib/auth";
 import type { Perfil } from "@/lib/types";
 
 const ROL_ETIQUETA: Record<Perfil["rol"], string> = {
@@ -10,6 +10,7 @@ const ROL_ETIQUETA: Record<Perfil["rol"], string> = {
   vendedor: "Vendedor",
   marketing: "Marketing",
   marketing_lead: "Marketing — Lead",
+  talento_humano: "Talento Humano (solo lectura)",
 };
 
 async function cerrarSesion() {
@@ -23,7 +24,9 @@ export function Shell({ perfil, children }: { perfil: Perfil; children: React.Re
   const links: Array<{ href: string; texto: string }> = [];
   if (esDireccion(perfil)) links.push({ href: "/maestro", texto: "Dashboard maestro" });
   if (esMarketingLead(perfil)) links.push({ href: "/mkt", texto: "Marketing equipo" });
-  if (esMarketing(perfil)) {
+  if (esTalentoHumano(perfil)) {
+    links.push({ href: "/equipo", texto: "Equipo" });
+  } else if (esMarketing(perfil)) {
     links.push({ href: `/mkt/${perfil.id}`, texto: "Mi Marketing" });
   } else {
     links.push({ href: `/vendedor/${perfil.id}`, texto: esDireccion(perfil) ? "Mi perfil" : "Mi evaluación" });

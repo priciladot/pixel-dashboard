@@ -1,4 +1,4 @@
-export type AppRole = "admin" | "supervisor" | "vendedor" | "marketing" | "marketing_lead";
+export type AppRole = "admin" | "supervisor" | "vendedor" | "marketing" | "marketing_lead" | "talento_humano";
 export type Ventana = "kpi_4_semanas" | "calendario";
 export type Calidad = "ok" | "parcial" | "por_revisar";
 export type Semaforo = "verde" | "amarillo" | "naranja" | "rojo" | "sin_dato";

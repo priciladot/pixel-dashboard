@@ -41,9 +41,13 @@ export const esMarketing = (p: Perfil) => p.rol === "marketing" || p.rol === "ma
 /** Ve el panel de equipo de Marketing (los 5): la lead, o dirección de ventas. */
 export const esMarketingLead = (p: Perfil) => p.rol === "marketing_lead" || esDireccion(p);
 
+/** Talento Humano: solo lectura de los perfiles de ventas y marketing (desde /equipo). */
+export const esTalentoHumano = (p: Perfil) => p.rol === "talento_humano";
+
 /** Ruta inicial según el rol. */
 export function rutaInicial(p: Perfil): string {
   if (esDireccion(p)) return "/maestro";
+  if (esTalentoHumano(p)) return "/equipo";
   if (esMarketing(p)) return `/mkt/${p.id}`;
   return `/vendedor/${p.id}`;
 }
