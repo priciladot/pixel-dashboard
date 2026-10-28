@@ -24,6 +24,7 @@ import { ComparativoVentasAnual } from "@/components/ComparativoVentasAnual";
 import { ParticipacionPorCanal } from "@/components/ParticipacionPorCanal";
 import { MezclaCartera } from "@/components/MezclaCartera";
 import { MisKpisMensuales } from "@/components/MisKpisMensuales";
+import { CoachIADelDia } from "@/components/CoachIADelDia";
 import { AnuncioTemporal } from "@/components/AnuncioTemporal";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
 import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
@@ -406,7 +407,10 @@ export async function TorreDeControl({
         descripcion={seleccionado ? `Diagnóstico táctico de ${seleccionado.nombre_corto} para este mes.` : "Filtra por vendedor para ver su Coach Comercial."}
       >
         {seleccionado ? (
-          <CoachComercial acciones={coachAcciones} />
+          <div className="space-y-3">
+            <CoachIADelDia vendedorId={seleccionado.vendedor_id} />
+            <CoachComercial acciones={coachAcciones} />
+          </div>
         ) : (
           <Vacio titulo="Selecciona un vendedor" detalle="El Coach Comercial diagnostica a una persona a la vez -- filtra arriba." />
         )}

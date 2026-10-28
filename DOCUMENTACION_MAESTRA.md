@@ -239,6 +239,9 @@ Todo cálculo de "hoy"/"mes en curso" usa **America/Mexico_City**, no UTC. Se cr
 ### 8.8 Bloque "¿Cómo voy en mis KPIs mensuales?" (perfil del vendedor)
 `MisKpisMensuales` (`src/components/MisKpisMensuales.tsx`), arriba del Acto 1 en `/vendedor/[id]`. Muestra los 5 KPIs del rol: **KPI 1** (meta mensual, 100%) con semáforo, Existentes/Nuevos, faltante a meta y a PE, y la semana en curso (meta semanal = objetivo ÷ 4) — misma fuente que el Semáforo Maestro (`reporteSemaforoComercial`). **KPIs 2–5** son indicadores de apoyo **sin calificación** (no hay rúbrica aprobada): el KPI 2 dice "sin información suficiente" porque el historial de etapas del dashboard es incompleto. Semanas de octubre cargadas en `periodo_semanas` (1–7, 8–14, 15–21, 22–31); nov/dic pendientes. Especificación para el equipo de Monday: `exports_monday_kpis/`.
 
+### 8.9 Coach Comercial — "Tu foco de hoy" con IA (migración 046)
+`src/lib/coach-ia.ts` + `POST /api/coach-ia`: una vez al día por vendedor, Claude (`claude-opus-5-5`) genera 1-3 acciones concretas con nombres de negocios reales, una táctica y una frase de ánimo, **solo con datos ya calculados por el dashboard** (meta del mes, semana en curso, tareas, negocios estancados, acciones prioritarias; sin correos ni teléfonos). Se guarda en `coach_diario` (una fila por vendedor y día) y se le pasan las tácticas recientes para no repetirlas. Requiere `ANTHROPIC_API_KEY` en Vercel y la migración 046; sin alguna de las dos no se muestra nada y el Coach de siempre sigue igual. La generación se pide aparte de la página (no la bloquea). Enviar nombres de negocios y montos a un servicio externo fue **aprobado por Pris** al elegir esta opción.
+
 ## 9. Protocolo Obligatorio de Carga y Cambios Futuros
 
 Regla fija para **todo** cambio de código o de datos en este proyecto, sin excepción:
