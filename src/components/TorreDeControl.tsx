@@ -5,9 +5,9 @@ import {
   accionesPrioritarias, ventasConProducto, alertasHigiene, productosSemanaPasada, proyeccionProximaSemana,
   actividadesPorTipo, tareasPorEstado, tamanoPromedioNegocio, historialCambiosNegocio,
   embudoConConversion, velocidadNegocios, ganadosPerdidos, diagnosticoCoach, disciplinaComercial,
-  proyeccionPipeline, pendientesLompiAbiertos, rachaLompiWhatsapp, progresoAceleradorSemanal, estadoLompi,
+  proyeccionPipeline, progresoAceleradorSemanal,
   aplicarResultadoRealAComparativa, resultadoRealPorVendedor, reporteSemaforoComercial, semaforoMetaPe, comparativoVentasAnual, notasGestionVenta,
-  type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type PendienteLompi, type AceleradorSemanal, type EstadoLompi,
+  type DealEstancado, type MotivoPerdida, type ResumenOperativoMonday, type AceleradorSemanal,
   type NotaGestion,
   type AccionPrioritaria, type VentaProducto, type DealPorRevisar, type AlertaAuditoria,
   type ProductoSemana, type DealProyectado, type RangoSemana, type VistaTiempo,
@@ -24,7 +24,6 @@ import { ComparativoVentasAnual } from "@/components/ComparativoVentasAnual";
 import { ParticipacionPorCanal } from "@/components/ParticipacionPorCanal";
 import { MezclaCartera } from "@/components/MezclaCartera";
 import { MisKpisMensuales } from "@/components/MisKpisMensuales";
-import { BotonRevisarLompi } from "@/components/BotonRevisarLompi";
 import { AnuncioTemporal } from "@/components/AnuncioTemporal";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
 import { ETAPAS_PIPELINE, nombreEtapa, etapaInfo } from "@/lib/pipeline-etapas";
@@ -88,7 +87,7 @@ export async function TorreDeControl({
     acciones, ventasProducto, higiene, semanaPasada, proyeccion,
     actividades, tareasEstado, tamanoNegocio, historialCambios, embudoDetallado, velocidad, ganadosPerdidosResumen,
     coachAcciones, disciplina, proyeccionPipelineData, estancados10,
-    pendientesLompi, rachaLompiWa, acelerador, lompiEstado, notasGestion,
+    acelerador, notasGestion,
   ] = await Promise.all([
     kpisDelPeriodo(periodoId, ventana),
     resumenArea(periodoId),
@@ -116,10 +115,7 @@ export async function TorreDeControl({
     vendedorId ? disciplinaComercial(periodoId, vendedorId) : Promise.resolve(null as TDisciplinaComercial | null),
     vendedorId ? proyeccionPipeline(periodoId, vendedorId) : Promise.resolve(null as ProyeccionPipeline | null),
     dealsEstancados(vendedorId, 10),
-    vendedorId ? pendientesLompiAbiertos(vendedorId) : Promise.resolve([] as PendienteLompi[]),
-    vendedorId ? rachaLompiWhatsapp(vendedorId) : Promise.resolve(0),
     vendedorId ? progresoAceleradorSemanal(vendedorId) : Promise.resolve(null as AceleradorSemanal | null),
-    estadoLompi(),
     vendedorId ? notasGestionVenta(vendedorId) : Promise.resolve([] as NotaGestion[]),
   ]);
 
@@ -512,7 +508,6 @@ export async function TorreDeControl({
           descripcion={`Negocios abiertos de ${seleccionado.nombre_corto}, agrupados por fecha de cierre estimada en HubSpot.`}
         >
           <ProyeccionPipelineTarjeta proyeccion={proyeccionPipelineData} />
-          <PendientesLompiTarjeta pendientes={pendientesLompi} racha={rachaLompiWa} estado={lompiEstado} />
         </Seccion>
       )}
 
@@ -542,16 +537,6 @@ export async function TorreDeControl({
       >
         <NegociosEstancados filas={estancados} mapaVendedores={mapaVendedores} mostrarVendedor={!seleccionado} />
       </Seccion>
-
-      {/* 🚨 Pendientes de Lompi que llevan 3+ días sin atender ---------------- */}
-      {seleccionado && (
-        <Seccion
-          titulo="🚨 Pendientes de Lompi — 3+ días sin atender"
-          descripcion={`Pendientes que Lompi detectó para ${seleccionado.nombre_corto} (ej. WhatsApp sin responder) y que llevan 3 días o más abiertos.`}
-        >
-          <PendientesLompiVencidos pendientes={pendientesLompi} />
-        </Seccion>
-      )}
 
       {/* Auditoría de higiene: HubSpot vs. Monday ---------------------------- */}
       <Seccion
@@ -779,51 +764,6 @@ function EmbudoEtapas({ filas }: { filas: Array<{ etapa_actual: string }> }) {
   );
 }
 
-const ETIQUETA_TIPO_PENDIENTE: Record<string, string> = {
-  whatsapp: "💬 WhatsApp",
-};
-
-/** "Hace 3h" / "Hace 2 días" a partir de horas transcurridas. */
-function formatearAntiguedad(horas: number): string {
-  if (horas < 1) return "hace instantes";
-  if (horas < 24) return `hace ${Math.round(horas)}h`;
-  const dias = Math.floor(horas / 24);
-  return `hace ${dias} ${dias === 1 ? "día" : "días"}`;
-}
-
-/**
- * Lompi nos empuja sus datos por webhook -- no hay forma de pedirle una
- * corrida bajo demanda desde aquí (ver estadoLompi() en queries.ts). Este
- * badge muestra qué tan viejo es lo último que él mandó, y el botón solo
- * vuelve a leer la base (por si ya llegó algo nuevo desde que se cargó la
- * página), no obliga a Lompi a correr de nuevo.
- */
-function EstadoLompiBadge({ estado }: { estado: EstadoLompi }) {
-  if (estado.horasDesde == null) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="rounded-full bg-surface-sunk px-2.5 py-1 text-[11px] font-medium text-ink-soft">
-          Lompi nunca ha mandado datos
-        </span>
-        <BotonRevisarLompi />
-      </div>
-    );
-  }
-
-  const critico = estado.horasDesde >= 48;
-  const tibio = estado.horasDesde >= 24;
-  const color = critico ? "bg-[#c0392b1a] text-[#c0392b]" : tibio ? "bg-[#8a61001a] text-[#8a6100]" : "bg-[#0ca30c1a] text-[#0ca30c]";
-
-  return (
-    <div className="flex items-center gap-2">
-      <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${color}`} title={estado.ultimaSync ? new Date(estado.ultimaSync).toLocaleString("es-MX") : undefined}>
-        Última vez que Lompi mandó datos: {formatearAntiguedad(estado.horasDesde)}
-      </span>
-      <BotonRevisarLompi />
-    </div>
-  );
-}
-
 const FORMATO_FECHA_NOTA = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "long", year: "numeric" });
 const FORMATO_FECHA_REGISTRO = new Intl.DateTimeFormat("es-MX", { timeZone: "America/Mexico_City", day: "numeric", month: "long", year: "numeric" });
 
@@ -855,79 +795,6 @@ function NotasGestionLista({ notas }: { notas: NotaGestion[] }) {
         );
       })}
     </ul>
-  );
-}
-
-/** Racha + lista de TODOS los pendientes de Lompi abiertos (dentro de Proyección de Cierres). */
-function PendientesLompiTarjeta({ pendientes, racha, estado }: { pendientes: PendienteLompi[]; racha: number; estado: EstadoLompi }) {
-  return (
-    <div className="mt-3 border-t border-line pt-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-[13px] font-semibold text-ink">🔔 Pendientes de Lompi</h3>
-        <span
-          className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-            racha >= 7 ? "bg-[#0ca30c1a] text-[#0ca30c]" : "bg-surface-sunk text-ink-soft"
-          }`}
-        >
-          🔥 {racha} {racha === 1 ? "día" : "días"} al día con WhatsApp
-        </span>
-      </div>
-      <div className="mb-2.5">
-        <EstadoLompiBadge estado={estado} />
-      </div>
-      {pendientes.length === 0 ? (
-        <p className="text-[12px] text-ink-soft">Sin pendientes abiertos de Lompi.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {pendientes.map((p) => (
-            <li key={p.id} className="flex items-center justify-between gap-3 text-[12px]">
-              <span className="text-ink-soft">
-                {ETIQUETA_TIPO_PENDIENTE[p.tipo] ?? p.tipo} — {p.descripcion ?? "Sin descripción"}
-              </span>
-              <span className={p.dias_sin_atender >= 3 ? "font-medium text-[#c0392b]" : "text-ink-muted"}>
-                {p.dias_sin_atender === 0 ? "Hoy" : `${p.dias_sin_atender}d sin atender`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/** Solo los pendientes de Lompi con 3+ días sin atender -- se listan aparte en Focos rojos. */
-function PendientesLompiVencidos({ pendientes }: { pendientes: PendienteLompi[] }) {
-  const vencidos = pendientes.filter((p) => p.dias_sin_atender >= 3);
-  if (vencidos.length === 0) {
-    return (
-      <Card className="px-5 py-6 text-center text-[13px] text-ink-soft">
-        Ningún pendiente de Lompi lleva 3+ días sin atender.
-      </Card>
-    );
-  }
-  return (
-    <Card className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] border-collapse text-[13px]">
-          <thead>
-            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-ink-muted">
-              <th className="px-4 py-2.5 font-medium">Tipo</th>
-              <th className="px-4 py-2.5 font-medium">Descripción</th>
-              <th className="px-4 py-2.5 font-medium">Sin atender</th>
-            </tr>
-          </thead>
-          <tbody>
-            {vencidos.map((p) => (
-              <tr key={p.id} className="border-b border-line/70 last:border-0">
-                <td className="px-4 py-2.5 text-ink-soft">{ETIQUETA_TIPO_PENDIENTE[p.tipo] ?? p.tipo}</td>
-                <td className="px-4 py-2.5 text-ink">{p.descripcion ?? "—"}</td>
-                <td className="px-4 py-2.5 font-medium text-[#c0392b]">{p.dias_sin_atender} días</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
   );
 }
 

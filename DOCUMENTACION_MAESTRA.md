@@ -181,7 +181,8 @@ Filtra por rol + correo + rango `[vigenteDesde, vigenteHasta)`. Con `verTodos = 
 - **`monday_sin_canal`**: negocio en Monday sin "¿Cómo llegó?" capturado. Corregido: se ignora si existe otra fila del mismo `hubspot_id` que sí trae el canal.
 - **`sin_atencion`**: negocio abierto sin actividad real en N días. Acumulativo, cruza periodos.
 
-### 7.2 Pendientes de Lompi (WhatsApp)
+### 7.2 Pendientes de Lompi (WhatsApp) — **retirado de los dashboards (2026-10-28, a petición de Pris: "no funciona")**
+Las tarjetas "🔔 Pendientes de Lompi" y "🚨 3+ días sin atender" ya no se muestran. El endpoint `POST /api/ingesta/lompi` y las tablas `lompi_*` se dejan intactos (los datos siguen llegando y no se borró nada), por si se retoma. Lo siguiente describe cómo funcionaba:
 Racha de días "al día con WhatsApp"; badge de última vez que Lompi mandó datos (verde <24h, ámbar 24-48h, rojo 48h+); lista de pendientes con antigüedad, 3+ días se listan aparte. Limitación conocida (del lado de Lompi, no de este código): el tipo "Pendiente por Auditoria" parece reenviar el mismo lote sin re-evaluar.
 
 ### 7.3 Notas de gestión (llamadas de atención / reconocimientos)
