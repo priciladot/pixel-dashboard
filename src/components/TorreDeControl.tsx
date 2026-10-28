@@ -23,6 +23,7 @@ import { ReporteSemaforoComercial } from "@/components/ReporteSemaforoComercial"
 import { ComparativoVentasAnual } from "@/components/ComparativoVentasAnual";
 import { ParticipacionPorCanal } from "@/components/ParticipacionPorCanal";
 import { MezclaCartera } from "@/components/MezclaCartera";
+import { MisKpisMensuales } from "@/components/MisKpisMensuales";
 import { BotonRevisarLompi } from "@/components/BotonRevisarLompi";
 import { AnuncioTemporal } from "@/components/AnuncioTemporal";
 import { dias, dinero, dineroCorto, formatearRangoFechas, num, pct } from "@/lib/format";
@@ -166,6 +167,10 @@ export async function TorreDeControl({
   // importar el filtro. Sin filtro, o si el id no resolvió a nadie, se cae al
   // resumen del área de siempre.
   const seleccionado = vendedorId ? filasComparativa[0] : undefined;
+  // Metas y resultado real de este vendedor (misma fuente que el Semáforo Maestro) para su bloque "¿Cómo voy en mis KPIs mensuales?".
+  const filaKpis = vendedorId
+    ? ((await reporteSemaforoComercial(periodoId)).filas.find((f) => f.vendedorId === vendedorId) ?? null)
+    : null;
   const resumen = seleccionado
     ? {
         titulo: `🎯 Mi Centro de Mando — ${seleccionado.nombre_corto}`,
@@ -275,6 +280,24 @@ export async function TorreDeControl({
           <InfoLlamadaAtencion />
           <NotasGestionLista notas={notasGestion} />
         </Seccion>
+      )}
+
+      {seleccionado && (
+        <MisKpisMensuales
+          periodoEtiqueta={periodo.etiqueta}
+          fila={filaKpis}
+          semaforoMes={seleccionado.semaforo}
+          disciplina={disciplina}
+          actividad={{
+            negociosCreados: seleccionado.deals_creados,
+            negociosGanados: seleccionado.deals_ganados,
+            correos: seleccionado.correos_enviados,
+            llamadas: seleccionado.llamadas,
+            reuniones: seleccionado.reuniones,
+          }}
+          tareas={tareas}
+          registrosPorRevisar={revisar.length}
+        />
       )}
 
       <ActoHeader numero={1} color="#2a78d6" titulo="Diagnóstico y Controles" />

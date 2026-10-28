@@ -235,6 +235,9 @@ Todo cálculo de "hoy"/"mes en curso" usa **America/Mexico_City**, no UTC. Se cr
 
 ---
 
+### 8.8 Bloque "¿Cómo voy en mis KPIs mensuales?" (perfil del vendedor)
+`MisKpisMensuales` (`src/components/MisKpisMensuales.tsx`), arriba del Acto 1 en `/vendedor/[id]`. Muestra los 5 KPIs del rol: **KPI 1** (meta mensual, 100%) con semáforo, Existentes/Nuevos, faltante a meta y a PE, y la semana en curso (meta semanal = objetivo ÷ 4) — misma fuente que el Semáforo Maestro (`reporteSemaforoComercial`). **KPIs 2–5** son indicadores de apoyo **sin calificación** (no hay rúbrica aprobada): el KPI 2 dice "sin información suficiente" porque el historial de etapas del dashboard es incompleto. Semanas de octubre cargadas en `periodo_semanas` (1–7, 8–14, 15–21, 22–31); nov/dic pendientes. Especificación para el equipo de Monday: `exports_monday_kpis/`.
+
 ## 9. Protocolo Obligatorio de Carga y Cambios Futuros
 
 Regla fija para **todo** cambio de código o de datos en este proyecto, sin excepción:
