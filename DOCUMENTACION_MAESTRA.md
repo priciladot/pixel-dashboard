@@ -242,6 +242,9 @@ Todo cálculo de "hoy"/"mes en curso" usa **America/Mexico_City**, no UTC. Se cr
 ### 8.9 Coach Comercial — "Tu foco de hoy" con IA (migración 046)
 `src/lib/coach-ia.ts` + `POST /api/coach-ia`: una vez al día por vendedor, Claude (`claude-opus-5-5`) genera 1-3 acciones concretas con nombres de negocios reales, una táctica y una frase de ánimo, **solo con datos ya calculados por el dashboard** (meta del mes, semana en curso, tareas, negocios estancados, acciones prioritarias; sin correos ni teléfonos). Se guarda en `coach_diario` (una fila por vendedor y día) y se le pasan las tácticas recientes para no repetirlas. Requiere `ANTHROPIC_API_KEY` en Vercel y la migración 046; sin alguna de las dos no se muestra nada y el Coach de siempre sigue igual. La generación se pide aparte de la página (no la bloquea). Enviar nombres de negocios y montos a un servicio externo fue **aprobado por Pris** al elegir esta opción.
 
+### 8.10 Dana (marketing_lead): lectura completa del dashboard de ventas (migración 047)
+`es_direccion()` incluye `marketing_lead` para **leer** todo (incluye `/maestro`, acumulados anuales, perfiles y notas de gestión de ventas, Monday, HubSpot). No gana escritura: `notas_gestion_ventas` escribe con `es_direccion_escritura()` (admin/supervisor) y el resto con `es_admin()` / `es_marketing_lead()`. El botón de sincronizar sigue siendo solo de admin. En el código, `/maestro` acepta `marketing_lead`; `esDireccion()` en TypeScript no cambió.
+
 ## 9. Protocolo Obligatorio de Carga y Cambios Futuros
 
 Regla fija para **todo** cambio de código o de datos en este proyecto, sin excepción:

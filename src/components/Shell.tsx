@@ -22,7 +22,7 @@ async function cerrarSesion() {
 
 export function Shell({ perfil, children }: { perfil: Perfil; children: React.ReactNode }) {
   const links: Array<{ href: string; texto: string }> = [];
-  if (esDireccion(perfil)) links.push({ href: "/maestro", texto: "Dashboard maestro" });
+  if (esDireccion(perfil) || perfil.rol === "marketing_lead") links.push({ href: "/maestro", texto: "Dashboard maestro" });
   if (esMarketingLead(perfil)) links.push({ href: "/mkt", texto: "Marketing equipo" });
   if (esTalentoHumano(perfil)) {
     links.push({ href: "/equipo", texto: "Equipo" });

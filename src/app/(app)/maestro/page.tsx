@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function Maestro({
   searchParams,
 }: { searchParams: Promise<{ periodo?: string; vendedor?: string; ventana?: string; vista?: string; alcance?: string }> }) {
-  const perfil = await requiereRol("admin", "supervisor");
+  const perfil = await requiereRol("admin", "supervisor", "marketing_lead");
   const sp = await searchParams;
 
   // Mismo criterio de resolución que TorreDeControl -- el botón debe
