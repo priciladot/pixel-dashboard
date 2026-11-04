@@ -23,6 +23,7 @@ import { buscarHistorialEtapas, buscarTodosLosEngagements, buscarLeads, refresca
 import { listarCierres } from "./monday";
 import { listarKpisMarketing } from "./monday-marketing";
 import { listarMetricasCanal } from "./monday-canales";
+import { asegurarMetasDelPeriodo } from "./metas-periodo";
 import { ingestarAnaliticaHubspot, ingestarCierresMonday, ingestarDeals, ingestarKpisMarketing, ingestarMetricasCanal } from "./cargar";
 
 export interface SeccionResultado {
@@ -63,6 +64,15 @@ export async function sincronizarTodo(
   const tipoDeals = origen === "manual" ? "hubspot_api" : "hubspot_cron";
   const tipoMonday = origen === "manual" ? "monday_api" : "monday_cron";
   const tipoMarketing = origen === "manual" ? "monday_mkt_api" : "monday_mkt_cron";
+
+  // Que el mes en curso nunca se quede sin metas por vendedor (ver metas-periodo.ts). Si falla, la sincronización sigue igual.
+  if (!simulacion) {
+    try {
+      await asegurarMetasDelPeriodo(db);
+    } catch (e) {
+      console.error("asegurarMetasDelPeriodo:", e instanceof Error ? e.message : e);
+    }
+  }
 
   const [deals, analitica, monday, marketing, canalesMarketing] = await Promise.allSettled([
     (async () => {

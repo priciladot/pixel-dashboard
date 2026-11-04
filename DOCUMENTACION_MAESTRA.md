@@ -245,6 +245,9 @@ Todo cálculo de "hoy"/"mes en curso" usa **America/Mexico_City**, no UTC. Se cr
 ### 8.10 Dana (marketing_lead): lectura completa del dashboard de ventas (migración 047)
 `es_direccion()` incluye `marketing_lead` para **leer** todo (incluye `/maestro`, acumulados anuales, perfiles y notas de gestión de ventas, Monday, HubSpot). No gana escritura: `notas_gestion_ventas` escribe con `es_direccion_escritura()` (admin/supervisor) y el resto con `es_admin()` / `es_marketing_lead()`. El botón de sincronizar sigue siendo solo de admin. En el código, `/maestro` acepta `marketing_lead`; `esDireccion()` en TypeScript no cambió.
 
+### 8.11 Metas por vendedor de cada mes — carga y salvaguarda automática
+La meta mensual del **área** vive en `ventas_historico_mensual.meta_con_iva` (Pris la ajusta mes a mes: oct $9,283,333 · nov $9,283,333 · dic $6,083,333). Las metas **por vendedor** (`objetivos` + `metas_semaforo`) se cargaron para nov y dic (2026-11-04) repartiendo esa meta con la misma proporción de septiembre/octubre (Nov idéntico a oct; Dic × 0.6553, `confirmado = false` hasta que Pris confirme el reparto). Para que no se repita lo de octubre, cada sincronización llama a `asegurarMetasDelPeriodo()` (`src/lib/ingesta/metas-periodo.ts`): si el mes en curso no tiene metas por vendedor, las arma desde el mes anterior con la meta del área, como `confirmado = false` (el dashboard muestra el aviso de objetivo por confirmar). Nunca pisa filas existentes ni inventa nada sin meta del área.
+
 ## 9. Protocolo Obligatorio de Carga y Cambios Futuros
 
 Regla fija para **todo** cambio de código o de datos en este proyecto, sin excepción:
